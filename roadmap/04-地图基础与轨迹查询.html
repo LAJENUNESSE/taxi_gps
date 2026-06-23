@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>04 地图基础与轨迹查询</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+  <header><h1>04 地图基础与轨迹查询</h1><p class="subtitle">基于百度地图 JavaScript API 实现交互式轨迹回放查看器，支持速度渐变折线、上下客标记与信息面板。</p><div class="nav"><a href="index.html">返回总入口</a><a href="03-OD完成与缓存构建.html">上一阶段</a><a href="05-热力图与统计分析.html">下一阶段</a></div></header>
+  <section class="section"><h2>完成内容</h2><ul><li>执行 <code>src/08_轨迹查询.py</code>，从 2.6 GB <code>vehicle_data.json</code> 流式抽取 100 辆代表性车辆轨迹。</li><li>分层抽样选取车辆：兼顾轨迹长/短、订单多/少，剔除无订单的车辆（无法展示上下客点）。</li><li>单车轨迹点上限 1500，超出则均匀降采样，控制 HTML 体积。</li><li>搭配 <code>orders.csv</code> 抽取每辆车对应的上下客事件，作为地图标记。</li><li>生成 <code>trajectory_viewer.html</code>（百度地图 JS API v3.0）：速度渐变折线、回放动画、上下客标记、实时信息面板。</li><li>生成数据文件 <code>trajectory_sample.json</code>，存放在 <code>output/figures/</code>，供 HTML 异步加载。</li></ul></section>
+  <section class="section"><h2>输出文件</h2><ul><li><code>output/figures/trajectory_viewer.html</code> — 交互式轨迹回放页面（百度地图）。</li><li><code>output/figures/trajectory_sample.json</code> — 抽样轨迹与上下客事件数据。</li></ul></section>
+  <section class="section"><h2>运行方式</h2><ul><li><code>python src/08_轨迹查询.py</code> — 生成数据 + HTML。</li><li><code>python src/08_轨迹查询.py --serve</code> — 生成后启动 HTTP 服务器。</li><li>浏览器打开 <code>http://localhost:8080/trajectory_viewer.html</code>。</li><li>注意：必须通过 HTTP 服务器访问，<code>file://</code> 会被浏览器安全策略拦截，无法加载百度地图 API。</li></ul></section>
+  <section class="section"><h2>难点</h2><ul><li><code>vehicle_data.json</code> 太大不能整体加载，必须按车辆键定位偏移、随机读取对应片段。</li><li>百点点轨迹若不做降采样，HTML 会膨胀到数十 MB，浏览器卡顿；需在保真度与体积间平衡。</li><li>上下客标记时间与轨迹点时间不一定精确对齐，需用时间最近邻匹配方能落到轨迹上。</li><li>速度渐变配色需与 <code>10_路网分析.py</code> 的拥堵色阶一致（绿/黄/红），否则同一系统内语义混乱。</li></ul></section>
+  <section class="section"><h2>注意事项</h2><ul><li>百度地图 AK 已在 <code>src/config.py</code> 配置，HTML 内为浏览器端 AK，注意域名白名单。</li><li>轨迹回放动画性能依赖点数，建议单次回放 ≤ 1500 点。</li><li><code>trajectory_sample.json</code> 是离线数据，重新抽样需重跑脚本，不要手动编辑。</li><li>页面内控件应使用百度地图原生 API 而非第三方库，减少依赖加载时间。</li></ul></section>
+</main></body></html>

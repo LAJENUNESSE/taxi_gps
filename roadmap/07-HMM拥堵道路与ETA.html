@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>07 HMM、拥堵道路与 ETA</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+  <header><h1>07 HMM、拥堵道路与 ETA</h1><p class="subtitle">在路网 snapping 基础上完成路段平均速度统计、拥堵等级配色与百度地图拥堵道路可视化，并衔接 ETA 预测。</p><div class="nav"><a href="index.html">返回总入口</a><a href="06-路网校正与地图选点.html">上一阶段</a><a href="08-系统集成与验收准备.html">下一阶段</a></div></header>
+  <section class="section"><h2>完成内容</h2><ul><li>执行 <code>src/10_路网分析.py</code> 第 2 阶段：基于已 snapping 的 GPS 点，按 <code>(u, v, key)</code> 累积每条道路边的车速样本。</li><li>计算道路边平均速度，按阈值划分拥堵等级：畅通 <code>&gt; 45 km/h</code>（绿 <code>#228B22</code>）、缓行 <code>20–45 km/h</code>（黄 <code>#FFD700</code>）、拥堵 <code>&lt; 20 km/h</code>（红 <code>#DC143C</code>）。</li><li>导出 <code>road_speeds.json</code>，记录每条边的样本数、平均速度与拥堵等级，供 HTML 与 ETA 模型复用。</li><li>生成 <code>road_congestion.html</code>（百度地图 JS API）：按拥堵等级着色的道路线段图层，叠加导航/比例控件。</li><li>ETA 衔接：路段平均速度作为 <code>05_预测.py</code> XGBoost ETA 模型的特征来源之一，形成“路网感知—速度统计—ETA”闭环。</li></ul></section>
+  <section class="section"><h2>输出文件</h2><ul><li><code>data/road_network/road_speeds.json</code> — 道路边速度与拥堵等级。</li><li><code>output/figures/road_congestion.html</code> — 百度地图路网拥堵可视化页面。</li></ul></section>
+  <section class="section"><h2>运行方式</h2><ul><li><code>python src/10_路网分析.py --serve --port 8080</code> — 生成 HTML 并启动 HTTP 服务器。</li><li>浏览器打开 <code>http://localhost:8080/road_congestion.html</code>。</li><li>需先完成 06 阶段的路网下载与 snapping，否则 <code>road_speeds.json</code> 为空。</li></ul></section>
+  <section class="section"><h2>难点</h2><ul><li>HMM 地图匹配需考虑发射概率（GPS 点到边的距离）与转移概率（相邻点边的连通性），纯最近邻 snapping 在路口容易出错。</li><li>样本数过少的边速度不可信，需设置最小样本阈值，否则单点高速会被误判为畅通。</li><li>百度地图 Polyline 数量受性能限制，需对道路边按速度分批渲染或做矢量合并。</li><li>ETA 模型依赖路段速度，若速度统计口径与预测特征不一致会引入偏差。</li></ul></section>
+  <section class="section"><h2>注意事项</h2><ul><li>必须通过 HTTP 服务器访问，<code>file://</code> 无法加载百度地图 API。</li><li>拥堵阈值（45 / 20 km/h）写在脚本常量区，调整后需重跑统计与 HTML 生成。</li><li>颜色常量 <code>COLOR_LOW / COLOR_MEDIUM / COLOR_HIGH</code> 需与轨迹回放页速度配色一致，避免视觉语义冲突。</li><li>路网可视化点数大，建议开启 <code>enableMassClear</code> 与按缩放聚合，缓解低端设备卡顿。</li></ul></section>
+</main></body></html>

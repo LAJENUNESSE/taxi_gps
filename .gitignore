@@ -1,0 +1,25 @@
+# Raw data
+TaxiData.csv
+
+# Generated data (reproducible from pipeline)
+data/
+cache/
+
+# Figures / output (keep HTML, ignore generated images)
+output/figures/*.png
+output/figures/*.gif
+
+# Virtual environment
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/

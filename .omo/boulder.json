@@ -1,0 +1,179 @@
+{
+  "schema_version": 2,
+  "active_work_id": "taxi-gps-pipeline-7fd39058",
+  "works": {
+    "taxi-gps-pipeline-7fd39058": {
+      "work_id": "taxi-gps-pipeline-7fd39058",
+      "active_plan": "/home/lajenunesse/projects/python/taxi_gps/.omo/plans/taxi-gps-pipeline.md",
+      "plan_name": "taxi-gps-pipeline",
+      "status": "completed",
+      "started_at": "2026-06-22T07:08:38.774Z",
+      "updated_at": "2026-06-23T03:00:45.836Z",
+      "session_ids": [
+        "opencode:ses_1124f2443ffeSoYKnW5ypvJh5T",
+        "opencode:ses_10d940199ffe57qOHy4gkrk9xv",
+        "opencode:ses_10d93ae53ffeqG0dK7uTbYNb8l"
+      ],
+      "session_origins": {
+        "opencode:ses_1124f2443ffeSoYKnW5ypvJh5T": "direct",
+        "opencode:ses_10d940199ffe57qOHy4gkrk9xv": "appended",
+        "opencode:ses_10d93ae53ffeqG0dK7uTbYNb8l": "appended"
+      },
+      "agent": "atlas",
+      "task_sessions": {
+        "todo:1": {
+          "task_key": "todo:1",
+          "task_label": "1",
+          "task_title": "项目脚手架 — 创建目录结构 + 常量配置 + 字体设置",
+          "session_id": "opencode:ses_111d46c0bffeVxTVOi65NGKb6p",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "updated_at": "2026-06-22T07:13:48.710Z",
+          "started_at": "2026-06-22T07:12:32.432Z",
+          "status": "completed",
+          "ended_at": "2026-06-22T07:13:48.710Z",
+          "elapsed_ms": 76278
+        },
+        "todo:2": {
+          "task_key": "todo:2",
+          "task_label": "2",
+          "task_title": "01_数据清洗.py — 读取/排序/类型转换/去重/异常剔除",
+          "session_id": "opencode:ses_111d06f04ffeCGIb55xEFAYfFW",
+          "agent": "Sisyphus-Junior",
+          "category": "deep",
+          "updated_at": "2026-06-22T07:31:24.730Z",
+          "started_at": "2026-06-22T07:28:51.646Z",
+          "status": "completed",
+          "ended_at": "2026-06-22T07:31:24.730Z",
+          "elapsed_ms": 153084
+        },
+        "todo:3": {
+          "task_key": "todo:3",
+          "task_label": "3",
+          "task_title": "02_OD提取.py — status变化提取上下车OD对",
+          "session_id": "opencode:ses_111c08cceffeducji2EU497weB",
+          "agent": "Sisyphus-Junior",
+          "category": "unspecified-high",
+          "updated_at": "2026-06-22T07:37:58.973Z",
+          "started_at": "2026-06-22T07:36:40.430Z",
+          "status": "completed",
+          "ended_at": "2026-06-22T07:37:58.973Z",
+          "elapsed_ms": 78543
+        },
+        "todo:4": {
+          "task_key": "todo:4",
+          "task_label": "4",
+          "task_title": "03_数据分析.py — DBSCAN聚类/时段统计/速度/距离/载客数",
+          "session_id": "opencode:ses_111baa438ffeZjMciZABIdk647",
+          "agent": "Sisyphus-Junior",
+          "category": "deep",
+          "updated_at": "2026-06-22T07:44:19.407Z",
+          "started_at": "2026-06-22T07:43:36.793Z",
+          "status": "completed",
+          "ended_at": "2026-06-22T07:44:19.407Z",
+          "elapsed_ms": 42614
+        },
+        "todo:5": {
+          "task_key": "todo:5",
+          "task_label": "5",
+          "task_title": "04_可视化.py — 生成6+可视化图表",
+          "session_id": "opencode:ses_111b5c32fffeASWnzW6JiAhAka",
+          "agent": "Sisyphus-Junior",
+          "category": "visual-engineering",
+          "updated_at": "2026-06-22T07:49:52.964Z",
+          "started_at": "2026-06-22T07:48:46.237Z",
+          "status": "completed",
+          "ended_at": "2026-06-22T07:49:52.964Z",
+          "elapsed_ms": 66727
+        }
+      },
+      "ended_at": "2026-06-22T07:52:24.292Z",
+      "elapsed_ms": 2625518
+    }
+  },
+  "active_plan": "/home/lajenunesse/projects/python/taxi_gps/.omo/plans/taxi-gps-pipeline.md",
+  "started_at": "2026-06-22T07:08:38.774Z",
+  "status": "completed",
+  "updated_at": "2026-06-23T03:00:45.836Z",
+  "session_ids": [
+    "opencode:ses_1124f2443ffeSoYKnW5ypvJh5T",
+    "opencode:ses_10d940199ffe57qOHy4gkrk9xv",
+    "opencode:ses_10d93ae53ffeqG0dK7uTbYNb8l"
+  ],
+  "session_origins": {
+    "opencode:ses_1124f2443ffeSoYKnW5ypvJh5T": "direct",
+    "opencode:ses_10d940199ffe57qOHy4gkrk9xv": "appended",
+    "opencode:ses_10d93ae53ffeqG0dK7uTbYNb8l": "appended"
+  },
+  "plan_name": "taxi-gps-pipeline",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "项目脚手架 — 创建目录结构 + 常量配置 + 字体设置",
+      "session_id": "opencode:ses_111d46c0bffeVxTVOi65NGKb6p",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-06-22T07:13:48.710Z",
+      "started_at": "2026-06-22T07:12:32.432Z",
+      "status": "completed",
+      "ended_at": "2026-06-22T07:13:48.710Z",
+      "elapsed_ms": 76278
+    },
+    "todo:2": {
+      "task_key": "todo:2",
+      "task_label": "2",
+      "task_title": "01_数据清洗.py — 读取/排序/类型转换/去重/异常剔除",
+      "session_id": "opencode:ses_111d06f04ffeCGIb55xEFAYfFW",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-06-22T07:31:24.730Z",
+      "started_at": "2026-06-22T07:28:51.646Z",
+      "status": "completed",
+      "ended_at": "2026-06-22T07:31:24.730Z",
+      "elapsed_ms": 153084
+    },
+    "todo:3": {
+      "task_key": "todo:3",
+      "task_label": "3",
+      "task_title": "02_OD提取.py — status变化提取上下车OD对",
+      "session_id": "opencode:ses_111c08cceffeducji2EU497weB",
+      "agent": "Sisyphus-Junior",
+      "category": "unspecified-high",
+      "updated_at": "2026-06-22T07:37:58.973Z",
+      "started_at": "2026-06-22T07:36:40.430Z",
+      "status": "completed",
+      "ended_at": "2026-06-22T07:37:58.973Z",
+      "elapsed_ms": 78543
+    },
+    "todo:4": {
+      "task_key": "todo:4",
+      "task_label": "4",
+      "task_title": "03_数据分析.py — DBSCAN聚类/时段统计/速度/距离/载客数",
+      "session_id": "opencode:ses_111baa438ffeZjMciZABIdk647",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-06-22T07:44:19.407Z",
+      "started_at": "2026-06-22T07:43:36.793Z",
+      "status": "completed",
+      "ended_at": "2026-06-22T07:44:19.407Z",
+      "elapsed_ms": 42614
+    },
+    "todo:5": {
+      "task_key": "todo:5",
+      "task_label": "5",
+      "task_title": "04_可视化.py — 生成6+可视化图表",
+      "session_id": "opencode:ses_111b5c32fffeASWnzW6JiAhAka",
+      "agent": "Sisyphus-Junior",
+      "category": "visual-engineering",
+      "updated_at": "2026-06-22T07:49:52.964Z",
+      "started_at": "2026-06-22T07:48:46.237Z",
+      "status": "completed",
+      "ended_at": "2026-06-22T07:49:52.964Z",
+      "elapsed_ms": 66727
+    }
+  },
+  "agent": "atlas",
+  "ended_at": "2026-06-22T07:52:24.292Z",
+  "elapsed_ms": 2625518
+}

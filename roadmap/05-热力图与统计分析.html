@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>05 热力图与统计分析</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+  <header><h1>05 热力图与统计分析</h1><p class="subtitle">基于百度地图 HeatmapOverlay 实现按小时切换的上客点交互热力图，并完成载客率、里程与订单统计。</p><div class="nav"><a href="index.html">返回总入口</a><a href="04-地图基础与轨迹查询.html">上一阶段</a><a href="06-路网校正与地图选点.html">下一阶段</a></div></header>
+  <section class="section"><h2>完成内容</h2><ul><li>执行 <code>src/09_交互热力图.py</code>，读取 <code>orders.csv</code> 上客点（开始经度/开始纬度/开始时间）。</li><li>按小时分桶 + ~100 m 网格聚合计数（深圳纬度下 0.001° ≈ 111 m），输出 <code>{hour: [[lng, lat, count], ...]}</code>。</li><li>越界过滤（深圳范围）并解析时间提取小时，剔除无效上客点。</li><li>生成 <code>interactive_heatmap.html</code>（百度地图 JS API + HeatmapOverlay）：时间滑块 0–23h、热力图层、图例、信息面板、导航/比例控件。</li><li>每小时最大点数 20000 上限，避免单小时网格过多撑爆 HTML。</li><li>同步复用 <code>03_数据分析.py</code> 的统计结果（载客率、里程、订单时段分布），供静态图与交互热力图互为印证。</li></ul></section>
+  <section class="section"><h2>输出文件</h2><ul><li><code>output/figures/interactive_heatmap.html</code> — 上客点交互热力图（按小时切换）。</li><li>配套静态图：<code>static_heatmap.png</code>、<code>heatmap_slices.png</code>、<code>dynamic_heatmap.gif</code>（由 <code>04_可视化.py</code> 产出）。</li></ul></section>
+  <section class="section"><h2>运行方式</h2><ul><li><code>python src/09_交互热力图.py</code> — 仅生成 HTML。</li><li><code>python src/09_交互热力图.py --serve</code> — 生成 + 启动 HTTP 服务器。</li><li><code>python src/09_交互热力图.py --serve --port 8000</code> — 指定端口。</li><li>浏览器打开 <code>http://localhost:8080/interactive_heatmap.html</code>。</li></ul></section>
+  <section class="section"><h2>难点</h2><ul><li>上客点近 48 万个，直接铺到地图会卡死，必须先做空间聚合再交给 HeatmapOverlay。</li><li>网格大小需平衡精度与性能：0.001° (~111 m) 在深圳主城区合理，但郊区点稀疏会显得空旷。</li><li>百度地图 HeatmapOverlay 对点数有上限，单小时超过 2 万点需二次抽样或减小最大半径。</li><li>时间滑块切换需重新设置热力数据，避免内存泄漏（旧数据未释放）。</li></ul></section>
+  <section class="section"><h2>注意事项</h2><ul><li>必须通过 HTTP 服务器访问，<code>file://</code> 无法加载百度地图 API 与 HeatmapOverlay。</li><li>热力图配色阈值需根据最大计数值动态调整，否则低峰小时几乎看不见热区。</li><li>上客点过滤范围必须与 <code>SHENZHEN_BOUNDS</code> 一致，否则会出现落在水域或边界外的异常点。</li><li>统计口径应与 <code>stats_summary.json</code> 一致，避免交互图与静态图数据打架。</li></ul></section>
+</main></body></html>

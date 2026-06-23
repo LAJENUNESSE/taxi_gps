@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>专业实训 V：出租车 GPS 数据分析与可视化</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>专业实训 V：出租车 GPS 数据分析与可视化</h1>
+    <p class="subtitle">本项目围绕出租车 GPS 数据完成清洗、OD 提取、缓存构建、地图展示、热力图、统计分析、路网校正、拥堵道路展示、ETA 预测和系统集成。</p>
+  </header>
+
+  <section class="section">
+    <h2>系统调用主线</h2>
+    <div class="flow">数据读取与清洗 -> OD 提取 -> 车辆缓存 / 分钟缓存 / OD 缓存
+-> 轨迹查询 / 车辆位置查询 -> 热力图 / 统计分析
+-> 路网校正 / HMM 匹配 -> 拥堵道路颜色 -> ETA 预测 -> 系统集成</div>
+  </section>
+
+  <section class="section">
+    <h2>阶段入口</h2>
+    <div class="grid two">
+      <div class="box"><h3>01 项目导入与清洗启动</h3><p>完成 Pandas 快速回顾、字段理解、目录结构和清洗启动。</p><a class="card-link" href="01-项目导入与清洗启动.html">打开</a></div>
+      <div class="box"><h3>02 清洗完成与 OD 启动</h3><p>完成分块读取、关键清洗，并开始识别上车点和下车点。</p><a class="card-link" href="02-清洗完成与OD启动.html">打开</a></div>
+      <div class="box"><h3>03 OD 完成与缓存构建</h3><p>完成订单表、车辆缓存、分钟缓存和 OD 缓存。</p><a class="card-link" href="03-OD完成与缓存构建.html">打开</a></div>
+      <div class="box"><h3>04 地图基础与轨迹查询</h3><p>完成地图页面、车辆轨迹、动画轨迹、车辆位置和上下车点标注。</p><a class="card-link" href="04-地图基础与轨迹查询.html">打开</a></div>
+      <div class="box"><h3>05 热力图与统计分析</h3><p>完成静态热力图、动态热力图、载客率、里程和订单统计。</p><a class="card-link" href="05-热力图与统计分析.html">打开</a></div>
+      <div class="box"><h3>06 路网校正与地图选点</h3><p>完成深圳路网加载、轨迹校正和地图选点。</p><a class="card-link" href="06-路网校正与地图选点.html">打开</a></div>
+      <div class="box"><h3>07 HMM、拥堵道路与 ETA</h3><p>完成地图匹配、速度颜色动态线段和 ETA 预测。</p><a class="card-link" href="07-HMM拥堵道路与ETA.html">打开</a></div>
+      <div class="box"><h3>08 系统集成与验收准备</h3><p>完成统一入口、演示流程、报告、PPT 和最终验收准备。</p><a class="card-link" href="08-系统集成与验收准备.html">打开</a></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>系统演示入口</h2>
+    <p class="subtitle" style="margin-bottom:18px;">四个基于百度地图 JavaScript API 的交互可视化页面，需通过 HTTP 服务器访问（<code>python -m http.server 8080</code>），<code>file://</code> 无法加载百度地图 API。统一门户：<a href="demo.html" style="color:var(--accent-2);">demo.html</a>。</p>
+    <div class="demo-grid">
+      <div class="demo-card">
+        <h4>OD 流向图</h4>
+        <p>486K 出行对按 ~1.5 km 网格聚合，Top 300 流向线，颜色/粗细反映流量。</p>
+        <a class="btn" href="../output/figures/baidu_flow_map.html">打开页面</a>
+        <p style="font-size:11px;color:var(--text-dim);">路径：<code>output/figures/baidu_flow_map.html</code></p>
+      </div>
+      <div class="demo-card">
+        <h4>轨迹回放</h4>
+        <p>100 辆代表性车辆轨迹回放，速度渐变折线、上下客标记、实时信息面板。</p>
+        <a class="btn" href="../output/figures/trajectory_viewer.html">打开页面</a>
+        <p style="font-size:11px;color:var(--text-dim);">路径：<code>output/figures/trajectory_viewer.html</code></p>
+      </div>
+      <div class="demo-card">
+        <h4>交互热力图</h4>
+        <p>上客点按小时切换的交互热力图，~100 m 网格聚合，时间滑块 0–23h。</p>
+        <a class="btn" href="../output/figures/interactive_heatmap.html">打开页面</a>
+        <p style="font-size:11px;color:var(--text-dim);">路径：<code>output/figures/interactive_heatmap.html</code></p>
+      </div>
+      <div class="demo-card">
+        <h4>路网拥堵</h4>
+        <p>深圳路网按平均速度着色（绿/黄/红），基于 GPS 路段速度统计。</p>
+        <a class="btn" href="../output/figures/road_congestion.html">打开页面</a>
+        <p style="font-size:11px;color:var(--text-dim);">路径：<code>output/figures/road_congestion.html</code></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>每日日志要求</h2>
+    <ul>
+      <li>每日正式提交结果为项目日志。</li>
+      <li>代码、数据文件、截图和系统页面不作为每日单独提交材料，但需要能在检查点现场打开、运行或展示，并在日志中说明位置和结果。</li>
+      <li>日志应包含：完成内容、成员分工、检查点结果、文件位置、问题汇报和次日计划。</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>
