@@ -64,7 +64,7 @@
         if (p.y > canvas.height) p.y = 0;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(77,140,255,' + p.alpha + ')';
+        ctx.fillStyle = 'rgba(37,99,235,' + p.alpha + ')';
         ctx.fill();
       }
       requestAnimationFrame(draw);

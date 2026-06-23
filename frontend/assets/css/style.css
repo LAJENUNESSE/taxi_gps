@@ -1,19 +1,19 @@
-/* 专业实训 V 路线图样式 — GSAP 增强版 */
+/* 专业实训 V 路线图样式 — GSAP 增强版 · 浅色主题 */
 
 :root {
-  --bg: #0f1830;
-  --bg-soft: #141f3d;
-  --card: #1b2a57;
-  --card-hover: #23366d;
-  --text: #cdd8f5;
-  --text-dim: #8fa3d8;
-  --accent: #4d8cff;
-  --accent-2: #29d3ff;
-  --danger: #ff6b6b;
-  --success: #1aa240;
-  --warning: #ffcc00;
+  --bg: #f1f5f9;
+  --bg-soft: #e2e8f0;
+  --card: #ffffff;
+  --card-hover: #f8fafc;
+  --text: #1e293b;
+  --text-dim: #64748b;
+  --accent: #2563eb;
+  --accent-2: #0d9488;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --warning: #ca8a04;
   --radius: 12px;
-  --shadow: 0 8px 32px rgba(0,0,0,.35);
+  --shadow: 0 4px 24px rgba(0,0,0,.06);
 }
 
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -30,7 +30,7 @@ html, body {
 }
 
 body {
-  background: linear-gradient(135deg, #0f1830 0%, #16203f 50%, #0f1830 100%);
+  background: linear-gradient(135deg, #f1f5f9 0%, #e8edf3 50%, #f1f5f9 100%);
   background-size: 400% 400%;
   animation: bgShift 20s ease infinite;
   padding-bottom:60px;
@@ -85,26 +85,26 @@ header h1 {
   padding:28px 32px;
   margin-bottom:28px;
   box-shadow:var(--shadow);
-  border:1px solid rgba(255,255,255,.05);
+  border:1px solid rgba(0,0,0,.06);
   transition: box-shadow .4s ease, border-color .4s ease, transform .3s ease;
 }
 
 .section:hover {
-  box-shadow: 0 0 25px rgba(77,140,255,.12), var(--shadow);
-  border-color: rgba(77,140,255,.15);
+  box-shadow: 0 0 30px rgba(37,99,235,.1), var(--shadow);
+  border-color: rgba(37,99,235,.2);
 }
 
 .section h2 {
   font-size:20px;
-  color:#eaf0ff;
+  color:#0f172a;
   margin-bottom:18px;
   padding-bottom:10px;
-  border-bottom:1px solid rgba(255,255,255,.08);
+  border-bottom:1px solid rgba(0,0,0,.06);
 }
 
 .section h3 {
   font-size:17px;
-  color:var(--accent-2);
+  color:var(--accent);
   margin:22px 0 10px;
 }
 
@@ -122,12 +122,12 @@ header h1 {
 }
 
 .section code {
-  background:rgba(0,0,0,.25);
+  background:rgba(0,0,0,.06);
   padding:2px 8px;
   border-radius:5px;
   font-family:"JetBrains Mono","Consolas",monospace;
   font-size:13px;
-  color:var(--accent-2);
+  color:var(--accent);
 }
 
 .nav {
@@ -161,9 +161,9 @@ header h1 {
 
 .nav a:hover, .card-link:hover, .btn:hover {
   background:var(--accent-2);
-  color:#0f1830;
+  color:#fff;
   transform:translateY(-3px);
-  box-shadow: 0 8px 25px rgba(41,211,255,.35);
+  box-shadow: 0 8px 25px rgba(13,148,136,.3);
 }
 
 .nav a:hover::after, .card-link:hover::after, .btn:hover::after {
@@ -187,28 +187,28 @@ header h1 {
   background:var(--bg-soft);
   border-radius:var(--radius);
   padding:22px;
-  border:1px solid rgba(255,255,255,.06);
+  border:1px solid rgba(0,0,0,.06);
   transition: all .35s cubic-bezier(.4,0,.2,1);
   will-change: transform;
   position:relative;
 }
 
 .box:hover {
-  background:var(--card-hover);
+  background:var(--card);
   transform:translateY(-5px);
-  border-color:rgba(77,140,255,.35);
-  box-shadow: 0 0 25px rgba(77,140,255,.15);
+  border-color:rgba(37,99,235,.25);
+  box-shadow: 0 8px 30px rgba(37,99,235,.1);
 }
 
 .box h3 {
   font-size:17px;
-  color:#eaf0ff;
+  color:#0f172a;
   margin:0 0 8px;
   transition: color .3s ease;
 }
 
 .box:hover h3 {
-  color: var(--accent-2);
+  color: var(--accent);
 }
 
 .box p {
@@ -219,7 +219,7 @@ header h1 {
 }
 
 .flow {
-  background:rgba(0,0,0,.2);
+  background:rgba(37,99,235,.04);
   border-left:4px solid var(--accent);
   padding:18px 22px;
   border-radius:0 var(--radius) var(--radius) 0;
@@ -231,7 +231,7 @@ header h1 {
 
 .flow:hover {
   border-left-color: var(--accent-2);
-  background: rgba(77,140,255,.06);
+  background: rgba(13,148,136,.06);
 }
 
 .demo-grid {
@@ -243,7 +243,7 @@ header h1 {
 
 .demo-card {
   background:var(--bg-soft);
-  border:1px solid rgba(255,255,255,.06);
+  border:1px solid rgba(0,0,0,.06);
   border-radius:var(--radius);
   padding:18px;
   display:flex;
@@ -255,18 +255,18 @@ header h1 {
 
 .demo-card:hover {
   transform:translateY(-4px);
-  border-color:rgba(77,140,255,.3);
-  box-shadow: 0 0 22px rgba(77,140,255,.12);
+  border-color:rgba(37,99,235,.25);
+  box-shadow: 0 6px 24px rgba(37,99,235,.1);
 }
 
 .demo-card h4 {
-  color:#eaf0ff;
+  color:#0f172a;
   font-size:15px;
   transition: color .3s ease;
 }
 
 .demo-card:hover h4 {
-  color: var(--accent-2);
+  color: var(--accent);
 }
 
 .demo-card p {
@@ -331,16 +331,16 @@ table {
 th, td {
   padding:10px 12px;
   text-align:left;
-  border-bottom:1px solid rgba(255,255,255,.08);
+  border-bottom:1px solid rgba(0,0,0,.06);
 }
 
 th {
-  color:var(--accent-2);
+  color:var(--accent);
   font-weight:700;
-  background:rgba(0,0,0,.15);
+  background:rgba(0,0,0,.03);
 }
 
 tr:hover td {
-  background:rgba(255,255,255,.05);
+  background:rgba(37,99,235,.04);
   transition: background .25s ease;
 }
