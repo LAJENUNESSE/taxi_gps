@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>01 项目导入与清洗启动</title><link rel="stylesheet" href="../../assets/css/style.css"></head>
+<body><main>
+  <header><h1>01 项目导入与清洗启动</h1><p class="subtitle">建立项目上下文，启动样本读取、字段统一和基础清洗。</p><div class="nav"><a href="../../index.html">返回总入口</a><a href="02-清洗完成与OD启动.html">下一阶段</a></div></header>
+  <section class="section"><h2>完成内容</h2><ul><li>8:00-10:00 快速回顾 Pandas，只覆盖项目马上要用到的操作。</li><li>明确出租车 GPS 字段：车辆 ID、时间、纬度、经度、载客状态、速度。</li><li>建立项目目录结构，区分原始数据、清洗数据、缓存、页面、代码和文档。</li><li>完成样本数据读取、字段统一、时间字段转换和按 <code>id,time</code> 排序的代码初稿。</li><li>确定小组分工和模块负责人。</li></ul></section>
+  <section class="section"><h2>难点</h2><ul><li>Pandas 回顾容易脱离项目，应直接围绕后续清洗和 OD 提取展开。</li><li>字段命名如果不统一，后续 OD、缓存、地图接口都会反复出错。</li><li>时间字段可能只有时分秒，需要补充日期后才能形成完整时间戳。</li></ul></section>
+  <section class="section"><h2>注意事项</h2><ul><li>不要把千万级原始数据放进代码目录。</li><li>数据路径要可配置，避免写死在个人电脑路径中。</li><li>当天日志要记录目录结构、成员分工、字段说明和清洗启动情况。</li></ul></section>
+  <section class="section"><h2>提示位置</h2><ul><li><code>pydata exercise only</code>：用于 Pandas 快速回顾。</li><li><code>TaxiData_Desc.txt</code>：用于字段说明。</li><li><code>数据简单处理.docx</code>：参考“数据背景、排序、类型转换”。</li></ul></section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="../../assets/js/animations.js"></script>
+</body></html>

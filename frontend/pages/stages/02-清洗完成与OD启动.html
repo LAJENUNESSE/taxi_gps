@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>02 清洗完成与 OD 启动</title><link rel="stylesheet" href="../../assets/css/style.css"></head>
+<body><main>
+  <header><h1>02 清洗完成与 OD 启动</h1><p class="subtitle">完成分块读取和关键清洗，并开始识别上车点、下车点。</p><div class="nav"><a href="../../index.html">返回总入口</a><a href="01-项目导入与清洗启动.html">上一阶段</a><a href="03-OD完成与缓存构建.html">下一阶段</a></div></header>
+  <section class="section"><h2>完成内容</h2><ul><li>使用 <code>pd.read_csv(..., chunksize=...)</code> 完成大文件分块读取。</li><li>完成字段统一，建议统一为 <code>id,time,long,lati,status,speed</code> 或 <code>id,time,lng,lat,status,speed</code>，但全项目必须保持一致。</li><li>如果原始时间只有时分秒，需要拼接日期，例如 <code>2013-10-22</code> 后再转为 datetime。</li><li>完成排序：按 <code>id,time</code> 升序排序并重置索引。</li><li>统计 <code>id,time</code> 重复数据，处理重复数量为 2 和 3 的情况。</li><li>使用 <code>shift</code> 构造前后状态、前后车辆 ID、前后时间，识别短时间异常状态。</li><li>输出清洗后的数据文件，并记录清洗前后数据量。</li><li>开始 OD 提取：计算 <code>status_chg</code>，初步筛选 <code>0 -> 1</code> 上车点和 <code>1 -> 0</code> 下车点。</li></ul></section>
+  <section class="section"><h2>难点</h2><ul><li>不能简单使用 <code>drop_duplicates</code> 处理所有重复记录；同一车辆同一时间可能有状态相同、状态不同、重复数量为 2 或 3 等情况。</li><li>分块读取时，同一辆车的数据可能跨分块，状态判断需要保留边界记录。</li><li>异常值既可能来自重复数据，也可能来自非重复状态跳变。</li><li>OD 启动依赖排序和状态清洗，如果清洗不稳定，后续订单表会产生大量错误订单。</li></ul></section>
+  <section class="section"><h2>注意事项</h2><ul><li>清洗规则必须写入项目日志，不能只保留代码。</li><li>清洗输出要有固定命名和路径，供 OD 提取直接调用。</li><li>检查点需要能展示字段类型、重复数量、异常数量、清洗前后行数，以及上车点/下车点的初步数量。</li><li>不要在代码中保留个人绝对路径；应把输入、输出路径集中放在配置区。</li><li>如果读取旧代码中的中文列名出现乱码，应尽早改为统一英文列名，避免后续热力图和机器学习阶段反复重命名。</li></ul></section>
+  <section class="section"><h2>提示位置</h2><ul><li><code>数据简单处理.docx</code>：需求 1-11。</li><li><code>学生代码/核心数据处理代码/OD_data_not_chunk.py</code>：可参考整体清洗、复杂重复值处理、异常状态筛选和 OD 启动逻辑。</li><li>重点参考：排序、<code>to_datetime</code>、<code>duplicated</code>、重复值分组统计、<code>shift</code> 异常筛选、<code>status_chg</code>。</li><li>大文件读取提示：<code>chunksize = 5000000</code> 可作为起始参考值，根据机器内存调整。</li></ul></section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script src="../../assets/js/animations.js"></script>
+</body></html>
