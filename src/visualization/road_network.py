@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """深圳路网分析 — 基于出租车GPS数据的道路级拥堵可视化
 
 1) 从 OpenStreetMap 下载深圳 drive 路网并保存为 GeoJSON
@@ -33,7 +33,9 @@ from scipy.spatial import cKDTree
 from shapely import distance as shapely_distance, points as shapely_points
 from shapely.geometry import LineString, Point
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from src.config import (
     BAIDU_MAP_API_KEY,
@@ -44,7 +46,7 @@ from src.config import (
 )
 from src.utils import assert_input_exists
 
-# ── Paths ───────────────────────────────────────────────────────────────────
+
 NETWORK_DIR = os.path.join(DATA_DIR, 'road_network')
 EDGES_PATH = os.path.join(NETWORK_DIR, 'shenzhen_edges.geojson')
 NODES_PATH = os.path.join(NETWORK_DIR, 'shenzhen_nodes.geojson')
@@ -53,28 +55,26 @@ VEHICLE_DATA_PATH = os.path.join(DATA_DIR, 'cache', 'vehicle_data.json')
 CLEAN_CSV_PATH = os.path.join(DATA_DIR, 'clean.csv')
 HTML_PATH = os.path.join(FIGURES_DIR, 'road_congestion.html')
 
-# ── Constants ───────────────────────────────────────────────────────────────
+
 CENTER_LAT = 22.55
 CENTER_LON = 114.06
 ZOOM = 12
 
-SAMPLE_RATE = 0.03          # ~3% 采样，约 1.1M 点
+SAMPLE_RATE = 0.03
 RANDOM_SEED = 42
-K_NEAREST = 5               # cKDTree 候选边数，再用 shapely 精确选最近
+K_NEAREST = 5
 BATCH_SIZE = 50000
 
-COLOR_LOW = '#228B22'       # 畅通
-COLOR_MEDIUM = '#FFD700'    # 缓行
-COLOR_HIGH = '#DC143C'      # 拥堵
+COLOR_LOW = '#228B22'
+COLOR_MEDIUM = '#FFD700'
+COLOR_HIGH = '#DC143C'
 
 SPEED_LOW_THRESHOLD = 45.0
 SPEED_HIGH_THRESHOLD = 20.0
 
-# 流式解析正则：顶层 vehicle_id 后接数组开始（允许 : 后空白）
+
 _VEHICLE_KEY_RE = re.compile(r'"(\d+)":\s*\[')
 
-
-# ── Network I/O ─────────────────────────────────────────────────────────────
 
 def _create_synthetic_fallback():
     """离线环境下生成覆盖深圳边界的网格路网 fallback。"""
@@ -170,7 +170,7 @@ def _load_or_download_network():
 
 def _prepare_projected_edges(edges_wgs84, nodes_wgs84):
     """将 WGS84 边投影到度量 CRS，返回 (edges_proj, crs_proj)。"""
-    # 优先使用 osmnx 自动 UTM 投影；若失败则回退到 EPSG:32649 (UTM 49N)
+
     try:
         G = ox.graph_from_gdfs(nodes_wgs84, edges_wgs84)
         G_proj = ox.project_graph(G)
@@ -181,7 +181,7 @@ def _prepare_projected_edges(edges_wgs84, nodes_wgs84):
         edges_proj = edges_wgs84.to_crs(epsg=32649)
         crs_proj = edges_proj.crs
 
-    # 规整列并排序，保证数组对齐
+
     edges_proj = edges_proj.reset_index().sort_values(['u', 'v', 'key']).reset_index(drop=True)
     return edges_proj, crs_proj
 
@@ -200,8 +200,6 @@ def _build_edge_lookup(edges_proj):
         'key': edges_proj['key'].values,
     }
 
-
-# ── GPS streaming ───────────────────────────────────────────────────────────
 
 def _stream_vehicles(path):
     """流式读取 vehicle_data.json，每次 yield (vid, records)。
@@ -233,9 +231,9 @@ def _stream_vehicles(path):
                     return
 
             vid = m.group(1)
-            value_start = m.end() - 1  # '[' 位置
+            value_start = m.end() - 1
 
-            # 查找外层数组结束：']]'' 后紧跟 ',' 或 '}'
+
             end_pos = None
             pos = value_start
             while True:
@@ -268,8 +266,6 @@ def _stream_vehicles(path):
             buf = buf[end_pos:]
 
 
-# ── Snapping & accumulation ─────────────────────────────────────────────────
-
 def _snap_points(lons, lats, transformer, tree, edge_geoms, k=K_NEAREST):
     """将 WGS84 经纬度点投影后，用 cKDTree 候选 + shapely 精确距离找最近边索引。"""
     xs, ys = transformer.transform(lons, lats)
@@ -280,7 +276,7 @@ def _snap_points(lons, lats, transformer, tree, edge_geoms, k=K_NEAREST):
     best_idx = np.zeros(n, dtype=np.int64)
     best_dist = np.full(n, np.inf)
 
-    # 若点数不足 k，query 返回一维数组
+
     if idxs.ndim == 1:
         idxs = idxs.reshape(-1, 1)
 
@@ -444,8 +440,6 @@ def _compute_road_speeds(speed_sum, count):
     return result
 
 
-# ── HTML generation ─────────────────────────────────────────────────────────
-
 def _geometry_to_path(geom):
     """将 WGS84 LineString/MultiLineString 转为 [[lat, lon], ...]。"""
     if geom.geom_type == 'LineString':
@@ -569,8 +563,6 @@ function initMap() {{
     return html
 
 
-# ── HTTP server ─────────────────────────────────────────────────────────────
-
 def _serve_html(out_path, port=8080):
     serve_dir = str(Path(out_path).parent)
     os.chdir(serve_dir)
@@ -601,8 +593,6 @@ def _serve_html(out_path, port=8080):
         server.server_close()
 
 
-# ── Main ────────────────────────────────────────────────────────────────────
-
 def main():
     parser = argparse.ArgumentParser(description='深圳路网拥堵分析')
     parser.add_argument('--serve', action='store_true', help='生成后启动 HTTP 服务器')
@@ -621,14 +611,14 @@ def main():
     os.makedirs(NETWORK_DIR, exist_ok=True)
     os.makedirs(FIGURES_DIR, exist_ok=True)
 
-    # 1) 路网
+
     edges_wgs84, nodes_wgs84 = _load_or_download_network()
     edges_proj, crs_proj = _prepare_projected_edges(edges_wgs84, nodes_wgs84)
     lookup = _build_edge_lookup(edges_proj)
     transformer = pyproj.Transformer.from_crs('EPSG:4326', crs_proj, always_xy=True)
     print(f'  投影 CRS: {crs_proj}')
 
-    # 2) 采样 +  snapping + 累积速度
+
     print('读取并 snapping GPS 轨迹 ...')
     if args.use_clean_csv:
         speed_sum, count = _accumulate_speeds_from_clean_csv(
@@ -637,7 +627,7 @@ def main():
         speed_sum, count = _accumulate_speeds_from_vehicles(
             lookup, transformer, sample_rate=args.sample_rate, max_points=args.max_points)
 
-    # 3) 计算拥堵
+
     print('计算边平均速度与拥堵等级 ...')
     road_speeds = _compute_road_speeds(speed_sum, count)
     print(f'  有速度记录的边数: {len(road_speeds):,}')
@@ -646,7 +636,7 @@ def main():
         json.dump(road_speeds, f, ensure_ascii=False, indent=2)
     print(f'  已保存: {ROAD_SPEEDS_PATH}')
 
-    # 4) 生成 HTML
+
     print('生成 Baidu Maps 拥堵可视化 HTML ...')
     html = _generate_html(edges_wgs84, road_speeds)
     with open(HTML_PATH, 'w', encoding='utf-8') as f:

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """出租车GPS数据可视化 — 8个图表
 
 图表:
@@ -23,13 +23,14 @@ import pandas as pd
 import seaborn as sns
 from PIL import Image
 
-# Ensure src/ is importable from project root
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from src.config import DATA_DIR, FIGURES_DIR
 from src.utils import setup_matplotlib_cjk, assert_input_exists
 
-# Apply CJK font configuration before any plotting
+
 setup_matplotlib_cjk()
 
 
@@ -42,9 +43,6 @@ def _save_fig(fig, filename: str) -> str:
     return path
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 图表1: 出行小时数量统计 (折线图 + 柱状图组合)
-# ═══════════════════════════════════════════════════════════════════════════
 def plot_hourly_orders() -> str:
     path = os.path.join(DATA_DIR, 'hourly_orders.csv')
     assert_input_exists(path)
@@ -63,9 +61,6 @@ def plot_hourly_orders() -> str:
     return _save_fig(fig, 'hourly_orders.png')
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 图表2: 各时段订单时长分布 (箱型图)
-# ═══════════════════════════════════════════════════════════════════════════
 def plot_order_duration_boxplot() -> str:
     path = os.path.join(DATA_DIR, 'orders.csv')
     assert_input_exists(path)
@@ -87,9 +82,6 @@ def plot_order_duration_boxplot() -> str:
     return _save_fig(fig, 'order_duration_boxplot.png')
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 图表3: 上客点热力分布 (静态散点热力图)
-# ═══════════════════════════════════════════════════════════════════════════
 def plot_static_heatmap() -> str:
     path = os.path.join(DATA_DIR, 'clustered_hotspots.csv')
     assert_input_exists(path)
@@ -115,16 +107,13 @@ def plot_static_heatmap() -> str:
     return _save_fig(fig, 'static_heatmap.png')
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 图表4: 载客出租车数量变化 (折线图, 采样)
-# ═══════════════════════════════════════════════════════════════════════════
 def plot_occupied_taxis() -> str:
     path = os.path.join(DATA_DIR, 'occupied_taxis.csv')
     assert_input_exists(path)
     df = pd.read_csv(path)
     df['TIME'] = pd.to_datetime(df['TIME'])
 
-    # 每30分钟采样一个点，减少密集度
+
     df_sampled = df.iloc[::30].reset_index(drop=True)
 
     fig, ax = plt.subplots(figsize=(14, 6))
@@ -136,21 +125,18 @@ def plot_occupied_taxis() -> str:
     ax.set_ylabel('载客数量')
     ax.set_title('载客出租车数量变化')
     ax.grid(alpha=0.3)
-    # X轴时间标签格式化
+
     fig.autofmt_xdate()
 
     return _save_fig(fig, 'occupied_taxis.png')
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 图表5: 出行距离划分 (饼图)
-# ═══════════════════════════════════════════════════════════════════════════
 def plot_trip_distance() -> str:
     path = os.path.join(DATA_DIR, 'JNLuC.csv')
     assert_input_exists(path)
     df = pd.read_csv(path)
 
-    # 汇总所有天的 near/middle/far
+
     near = int(df['near'].sum())
     middle = int(df['middle'].sum())
     far = int(df['far'].sum())
@@ -175,9 +161,6 @@ def plot_trip_distance() -> str:
     return _save_fig(fig, 'trip_distance.png')
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 图表6: 各时段道路平均速度 (折线图)
-# ═══════════════════════════════════════════════════════════════════════════
 def plot_avg_speed() -> str:
     path = os.path.join(DATA_DIR, 'avg_speed_by_hour.csv')
     assert_input_exists(path)
@@ -197,9 +180,6 @@ def plot_avg_speed() -> str:
     return _save_fig(fig, 'avg_speed.png')
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 图表7: 15分钟热力切片 (8×12子图网格)
-# ═══════════════════════════════════════════════════════════════════════════
 def plot_heatmap_slices() -> str:
     path = os.path.join(DATA_DIR, 'orders.csv')
     assert_input_exists(path)
@@ -230,9 +210,6 @@ def plot_heatmap_slices() -> str:
     return _save_fig(fig, 'heatmap_slices.png')
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 图表8: 动态热力图GIF (每60分钟一帧, 24帧循环)
-# ═══════════════════════════════════════════════════════════════════════════
 def plot_dynamic_heatmap_gif() -> str:
     path = os.path.join(DATA_DIR, 'orders.csv')
     assert_input_exists(path)
@@ -246,7 +223,7 @@ def plot_dynamic_heatmap_gif() -> str:
     tmp_dir = tempfile.mkdtemp(prefix='heatmap_frames_')
     frames = []
 
-    # 每4帧取1帧 → 24帧(每小时一帧)
+
     for i in range(0, 96, 4):
         sub = df[df['时间窗'] == i]
         start_min = i * 15
@@ -278,7 +255,7 @@ def plot_dynamic_heatmap_gif() -> str:
         loop=0,
     )
 
-    # 清理临时帧文件
+
     for img in frames:
         img.close()
     shutil.rmtree(tmp_dir)
@@ -286,9 +263,6 @@ def plot_dynamic_heatmap_gif() -> str:
     return gif_path
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# 主函数
-# ═══════════════════════════════════════════════════════════════════════════
 def main() -> None:
     print('=' * 60)
     print('出租车GPS数据可视化')
@@ -314,7 +288,7 @@ def main() -> None:
         print(f'  保存: {fig_path} ({size_kb:.1f} KB)')
         results.append((title, fig_path, size_kb))
 
-    # 汇总日志
+
     print()
     print('=' * 60)
     print('可视化汇总')

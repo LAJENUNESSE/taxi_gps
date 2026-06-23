@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """出租车GPS预测 — ARIMA需求预测 + XGBoost ETA预测
 
 产出:
@@ -13,7 +13,9 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from src.config import ARIMA_TEST_RATIO, DATA_DIR
 from src.utils import assert_input_exists, setup_matplotlib_cjk
@@ -25,19 +27,19 @@ def arima_forecast() -> None:
     print('6.1 ARIMA 需求预测')
     print('=' * 60)
 
-    # ── 读取数据 ──
+
     hourly_path = os.path.join(DATA_DIR, 'hourly_orders.csv')
     assert_input_exists(hourly_path)
     df = pd.read_csv(hourly_path)
     series = df['数量'].values.astype(float)
     print(f'数据 : {hourly_path}  ({len(series)} 行)')
 
-    # ── 划分训练/测试集 ──
+
     split_idx = int(len(series) * (1 - ARIMA_TEST_RATIO))
     train, test = series[:split_idx], series[split_idx:]
     print(f'训练集: {len(train)}  测试集: {len(test)}  (ratio={ARIMA_TEST_RATIO})')
 
-    # ── ARIMA(1,1,1) ──
+
     from statsmodels.tsa.arima.model import ARIMA
 
     model = ARIMA(train, order=(1, 1, 1))
@@ -45,7 +47,7 @@ def arima_forecast() -> None:
     forecast = model_fit.forecast(steps=len(test))
     print(f'ARIMA(1,1,1) — AIC: {model_fit.aic:.2f}')
 
-    # ── 评估 ──
+
     rmse = np.sqrt(mean_squared_error(test, forecast))
     mae = mean_absolute_error(test, forecast)
     print(f'RMSE: {rmse:.2f}  MAE: {mae:.2f}')
@@ -54,7 +56,7 @@ def arima_forecast() -> None:
     for i in range(min(5, len(test))):
         print(f'  [{split_idx + i}h] 实际: {test[i]:.0f}  预测: {forecast[i]:.0f}')
 
-    # ── 保存 CSV ──
+
     hours = list(range(split_idx, len(series)))
     df_out = pd.DataFrame({
         'hour': hours,
@@ -65,7 +67,7 @@ def arima_forecast() -> None:
     df_out.to_csv(out_path, index=False)
     print(f'保存: {out_path}')
 
-    # ── 绘制对比图 ──
+
     setup_matplotlib_cjk()
     import matplotlib.pyplot as plt
 
@@ -96,20 +98,20 @@ def xgboost_eta() -> None:
     print('6.2 XGBoost ETA 预测')
     print('=' * 60)
 
-    # ── 读取数据 ──
+
     orders_path = os.path.join(DATA_DIR, 'orders.csv')
     assert_input_exists(orders_path)
     df = pd.read_csv(orders_path)
     print(f'数据 : {orders_path}  ({len(df):,} 行)')
 
-    # ── 构造特征 ──
+
     df['开始时间'] = pd.to_datetime(df['开始时间'])
     df['hour'] = df['开始时间'].dt.hour
 
     feature_cols = ['开始纬度', '开始经度', '结束纬度', '结束经度', 'OD_Dis_km', 'hour']
     target_col = 'OD_TIME_s'
 
-    # ── 按时间顺序划分 ──
+
     df = df.sort_values('开始时间').reset_index(drop=True)
     split_idx = int(len(df) * (1 - ARIMA_TEST_RATIO))
     train_df = df.iloc[:split_idx]
@@ -122,7 +124,7 @@ def xgboost_eta() -> None:
 
     print(f'训练集: {len(X_train):,}  测试集: {len(X_test):,}')
 
-    # ── XGBoost ──
+
     import xgboost as xgb
 
     model = xgb.XGBRegressor(
@@ -134,22 +136,22 @@ def xgboost_eta() -> None:
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
 
-    # ── 非负截断 ──
+
     y_pred = np.maximum(y_pred, 0)
 
-    # ── 评估 ──
+
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
     mae = mean_absolute_error(y_test, y_pred)
     print(f'RMSE: {rmse:.2f} s  MAE: {mae:.2f} s')
 
-    # 特征重要性
+
     importance = model.feature_importances_
     indices = np.argsort(importance)[::-1]
     print('特征重要性（前5个）:')
     for rank, idx in enumerate(indices[:5], 1):
         print(f'  {rank}. {feature_cols[idx]:16s}  {importance[idx]:.4f}')
 
-    # ── 保存 CSV ──
+
     df_out = pd.DataFrame({
         'actual_s': y_test,
         'predicted_s': y_pred,
@@ -159,7 +161,7 @@ def xgboost_eta() -> None:
     df_out.to_csv(out_path, index=False)
     print(f'保存: {out_path}')
 
-    # ── 绘制特征重要性图 ──
+
     setup_matplotlib_cjk()
     import matplotlib.pyplot as plt
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """出租车轨迹查询 — 百度地图交互式轨迹回放查看器
 
 从 2.6 GB 的 vehicle_data.json 流式抽取 ~100 辆代表性车辆的轨迹，
@@ -24,18 +24,19 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from src.config import BAIDU_MAP_API_KEY, DATA_DIR, FIGURES_DIR
 from src.utils import assert_input_exists
 
 
-# ── 采样参数 ────────────────────────────────────────────────────────────────
-N_SAMPLES = 100                 # 选取的车辆数
-MAX_POINTS_PER_VEHICLE = 1500   # 单车轨迹点上限（超出则均匀降采样）
-SHENZHEN_CENTER = (114.05, 22.55)  # 经度, 纬度
+N_SAMPLES = 100
+MAX_POINTS_PER_VEHICLE = 1500
+SHENZHEN_CENTER = (114.05, 22.55)
 
-# ── 轨迹漂移过滤参数 ────────────────────────────────────────────────────────
+
 MAX_IMPLIED_SPEED_KMH = 150
 MAX_TIME_GAP_S = 300
 STOP_SPEED_KMH = 5
@@ -165,7 +166,6 @@ def _filter_trajectory_drift(pts):
     return result, stats
 
 
-# ── 车辆选取 ────────────────────────────────────────────────────────────────
 def _select_sample_vehicles(vehicles_path: str, orders_path: str,
                            n: int = N_SAMPLES) -> tuple[list[int], dict]:
     """分层抽样选取代表性车辆：兼顾轨迹长 / 短、订单多 / 少。
@@ -178,7 +178,7 @@ def _select_sample_vehicles(vehicles_path: str, orders_path: str,
     print('读取车辆元数据 ...')
     with open(vehicles_path, encoding='utf-8') as f:
         vmeta = json.load(f)
-    # vmeta: {vid_str: [point_count, offset, 'vehicle_data.json']}
+
     print(f'  车辆总数: {len(vmeta):,}')
 
     print('读取订单数据 ...')
@@ -187,10 +187,10 @@ def _select_sample_vehicles(vehicles_path: str, orders_path: str,
     odf['结束时间'] = pd.to_datetime(odf['结束时间'])
     print(f'  订单总数: {len(odf):,}')
 
-    # 每辆车的订单数与上下客事件
+
     order_count = odf.groupby('车辆id').size()
 
-    # 构建候选车辆表：同时拥有轨迹与订单
+
     rows = []
     for vid_str, meta in vmeta.items():
         vid = int(vid_str)
@@ -198,11 +198,11 @@ def _select_sample_vehicles(vehicles_path: str, orders_path: str,
         oc = int(order_count.get(vid, 0))
         rows.append({'vid': vid, 'point_count': point_count, 'order_count': oc})
     cand = pd.DataFrame(rows)
-    # 剔除没有任何订单的车辆（无法展示上下客点）
+
     cand = cand[cand['order_count'] > 0].reset_index(drop=True)
     print(f'  有订单的候选车辆: {len(cand):,}')
 
-    # ── 分层抽样：按轨迹点数排序后均分 n 个分位桶，每桶取订单最多者 ──
+
     cand = cand.sort_values('point_count').reset_index(drop=True)
     n = min(n, len(cand))
     picks = []
@@ -211,7 +211,7 @@ def _select_sample_vehicles(vehicles_path: str, orders_path: str,
         lo = int(round(i * step))
         hi = int(round((i + 1) * step))
         bucket = cand.iloc[lo:hi]
-        # 桶内挑订单数最多（"出行丰富"），平手时取轨迹最长
+
         best = bucket.sort_values(
             ['order_count', 'point_count'], ascending=False
         ).iloc[0]
@@ -224,7 +224,7 @@ def _select_sample_vehicles(vehicles_path: str, orders_path: str,
     print(f'    订单数范围: {cand.loc[cand.vid.isin(picks), "order_count"].min()}'
           f' ~ {cand.loc[cand.vid.isin(picks), "order_count"].max()}')
 
-    # ── 构建上下客事件索引 ──
+
     order_index: dict = {}
     sub = odf[odf['车辆id'].isin(picks)]
     for vid, g in sub.groupby('车辆id'):
@@ -242,14 +242,13 @@ def _select_sample_vehicles(vehicles_path: str, orders_path: str,
                 'lon': float(r['结束经度']),
                 'lat': float(r['结束纬度']),
             })
-        # 按时间排序，便于回放时同步显示
+
         events.sort(key=lambda e: e['time'])
         order_index[int(vid)] = events
 
     return picks, order_index
 
 
-# ── 流式轨迹抽取 ────────────────────────────────────────────────────────────
 def _stream_trajectories(vd_path: str, target_vids: list[int],
                          max_points: int = MAX_POINTS_PER_VEHICLE
                          ) -> dict[int, list]:
@@ -272,9 +271,9 @@ def _stream_trajectories(vd_path: str, target_vids: list[int],
     with open(vd_path, encoding='utf-8') as f:
         for line_no, line in enumerate(f):
             s = line[0]
-            if s != '"':  # 跳过首行 '{' 与末行 '}'
+            if s != '"':
                 continue
-            # 提取键（"vid"）
+
             try:
                 key_end = line.index('"', 1)
             except ValueError:
@@ -282,10 +281,10 @@ def _stream_trajectories(vd_path: str, target_vids: list[int],
             vid = line[1:key_end]
             if vid not in targets:
                 continue
-            # 整行包裹成单键 JSON 对象解析
+
             obj = json.loads('{' + line.rstrip().rstrip(',') + '}')
             traj = obj[vid]
-            # 均匀降采样
+
             if len(traj) > max_points:
                 idx = [round(i * (len(traj) - 1) / (max_points - 1))
                        for i in range(max_points)]
@@ -299,7 +298,6 @@ def _stream_trajectories(vd_path: str, target_vids: list[int],
     return found
 
 
-# ── 数据文件生成 ────────────────────────────────────────────────────────────
 def _build_sample_json(vids: list[int], traj_map: dict,
                         order_index: dict, out_path: str) -> dict:
     """生成 trajectory_sample.json，返回过滤统计信息。"""
@@ -334,7 +332,6 @@ def _build_sample_json(vids: list[int], traj_map: dict,
     return total_stats
 
 
-# ── HTML 生成 ───────────────────────────────────────────────────────────────
 def _generate_html(out_json_name: str) -> str:
     return f'''<!DOCTYPE html>
 <html lang="zh-CN">
@@ -771,13 +768,13 @@ def main() -> None:
 
     os.makedirs(FIGURES_DIR, exist_ok=True)
 
-    # 1. 选车
+
     vids, order_index = _select_sample_vehicles(vehicles_path, orders_path)
 
-    # 2. 流式抽取轨迹
+
     traj_map = _stream_trajectories(vd_path, vids)
 
-    # 3. 生成 trajectory_sample.json
+
     sample_path = os.path.join(FIGURES_DIR, 'trajectory_sample.json')
     print('\n生成 trajectory_sample.json ...')
     stats = _build_sample_json(vids, traj_map, order_index, sample_path)
@@ -785,7 +782,7 @@ def main() -> None:
           f'剔除跳点 {stats["jump_removed"]:,}, 压缩停留点 {stats["stop_removed"]:,}, '
           f'剩余 {stats["final"]:,}')
 
-    # 4. 生成 HTML
+
     html_path = os.path.join(FIGURES_DIR, 'trajectory_viewer.html')
     print('\n生成 trajectory_viewer.html ...')
     html = _generate_html(Path(sample_path).name)

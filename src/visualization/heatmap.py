@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """深圳出租车上客点交互热力图 — 基于百度地图 JavaScript API + HeatmapOverlay
 
 读取 orders.csv 的上客点(开始经度/开始纬度/开始时间) → 按小时分桶 +
@@ -20,20 +20,21 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from src.config import BAIDU_MAP_API_KEY, DATA_DIR, FIGURES_DIR, SHENZHEN_BOUNDS
 from src.utils import assert_input_exists
 
 
-# ── 常量 ────────────────────────────────────────────────────────────────────
 CENTER_LAT = 22.55
 CENTER_LON = 114.06
 ZOOM = 12
 
-# ~100m 网格聚合（深圳纬度下 0.001° ≈ 111m）
+
 HEAT_GRID = 0.001
-# 每小时最大点数（避免单小时网格过多撑爆 HTML）
+
 MAX_POINTS_PER_HOUR = 20000
 
 
@@ -47,12 +48,12 @@ def _load_pickups() -> pd.DataFrame:
     df = pd.read_csv(orders_path, usecols=usecols)
     print(f'  行数: {len(df):,}')
 
-    # 解析时间 → 提取小时
+
     df['开始时间'] = pd.to_datetime(df['开始时间'], errors='coerce')
     df = df.dropna(subset=['开始时间'])
     df['hour'] = df['开始时间'].dt.hour
 
-    # 越界过滤（深圳范围）
+
     b = SHENZHEN_BOUNDS
     mask = (
         df['开始经度'].between(b['long_min'], b['long_max'])

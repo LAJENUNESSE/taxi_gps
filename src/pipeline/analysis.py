@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """出租车GPS数据分析 — 6个子分析产出6个CSV结果文件
 
 子分析:
@@ -18,8 +18,9 @@ import numpy as np
 import pandas as pd
 from sklearn.cluster import DBSCAN
 
-# Ensure src/ is importable from project root
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from src.config import (
     DATA_DIR,
@@ -32,28 +33,26 @@ from src.utils import assert_input_exists
 
 
 def main() -> None:
-    # ── 0. Paths & input assertion ───────────────────────────────────────
+
     orders_path = os.path.join(DATA_DIR, 'orders.csv')
     clean_path = os.path.join(DATA_DIR, 'clean.csv')
     assert_input_exists(orders_path)
     assert_input_exists(clean_path)
 
-    # ── 1. 读取 orders.csv ───────────────────────────────────────────────
+
     print(f'读取数据: {orders_path}')
     df = pd.read_csv(orders_path)
     print(f'  行数: {len(df):,}')
     print(f'  列: {list(df.columns)}')
 
-    # Parse time columns
+
     df['开始时间'] = pd.to_datetime(df['开始时间'])
     df['结束时间'] = pd.to_datetime(df['结束时间'])
     df['小时'] = df['开始时间'].dt.hour
 
     total_od_pairs = len(df)
 
-    # ══════════════════════════════════════════════════════════════════════
-    # 4.1 DBSCAN上客点聚类
-    # ══════════════════════════════════════════════════════════════════════
+
     print()
     print('--- 4.1 DBSCAN上客点聚类 ---')
     pickup_points = df[['开始纬度', '开始经度']].values
@@ -69,7 +68,7 @@ def main() -> None:
     print(f'  簇数量: {n_clusters}')
     print(f'  噪声点比例: {n_noise / max(len(labels), 1):.2%} ({n_noise:,}/{len(labels):,})')
 
-    # 对非噪声点按簇分组，计算中心点(均值)和count
+
     cluster_data = []
     for cluster_id in sorted(unique_labels):
         if cluster_id == -1:
@@ -91,14 +90,12 @@ def main() -> None:
     df_clusters.to_csv(hotspots_path, index=False)
     print(f'  保存: {hotspots_path} ({len(df_clusters)} 行)')
 
-    # ══════════════════════════════════════════════════════════════════════
-    # 4.2 订单时段统计
-    # ══════════════════════════════════════════════════════════════════════
+
     print()
     print('--- 4.2 订单时段统计 ---')
     df_hourcnt = df.groupby('小时')['车辆id'].count().rename('数量').reset_index()
 
-    # 确保所有24小时都有记录（没有订单的小时填0）
+
     all_hours = pd.DataFrame({'小时': range(24)})
     df_hourcnt = all_hours.merge(df_hourcnt, on='小时', how='left').fillna(0)
     df_hourcnt['数量'] = df_hourcnt['数量'].astype(int)
@@ -110,9 +107,7 @@ def main() -> None:
     hourly_sum = int(df_hourcnt['数量'].sum())
     print(f'  时段统计总和: {hourly_sum} (OD对总数: {total_od_pairs})')
 
-    # ══════════════════════════════════════════════════════════════════════
-    # 4.2b 每分钟打车数量统计
-    # ══════════════════════════════════════════════════════════════════════
+
     print()
     print('--- 4.2b 每分钟打车数量统计 ---')
     df_minute = df.copy()
@@ -123,9 +118,7 @@ def main() -> None:
     df_minutely.to_csv(minutely_path, index=False)
     print(f'  保存: {minutely_path} ({len(df_minutely)} 行)')
 
-    # ══════════════════════════════════════════════════════════════════════
-    # 4.2c 每15分钟打车数量统计
-    # ══════════════════════════════════════════════════════════════════════
+
     print()
     print('--- 4.2c 每15分钟打车数量统计 ---')
     df_quarter = df.copy()
@@ -136,9 +129,7 @@ def main() -> None:
     df_quarter_hour.to_csv(quarter_hour_path, index=False)
     print(f'  保存: {quarter_hour_path} ({len(df_quarter_hour)} 行)')
 
-    # ══════════════════════════════════════════════════════════════════════
-    # 4.3 订单时长分布
-    # ══════════════════════════════════════════════════════════════════════
+
     print()
     print('--- 4.3 订单时长分布 ---')
     df['订单时长_min'] = (
@@ -156,9 +147,7 @@ def main() -> None:
     df_dur.to_csv(dur_path, index=False)
     print(f'  保存: {dur_path} ({len(df_dur)} 行)')
 
-    # ══════════════════════════════════════════════════════════════════════
-    # 4.4 出行距离划分
-    # ══════════════════════════════════════════════════════════════════════
+
     print()
     print('--- 4.4 出行距离划分 ---')
     df['距离类型'] = pd.cut(
@@ -168,7 +157,7 @@ def main() -> None:
     )
 
     dist_counts = df['距离类型'].value_counts()
-    # 单日统计，day=1
+
     df_jnluc = pd.DataFrame({
         'day': [1],
         'near': [int(dist_counts.get('near', 0))],
@@ -181,14 +170,12 @@ def main() -> None:
     print(f'  保存: {jnluc_path} ({len(df_jnluc)} 行)')
     print(f'  near={df_jnluc.iloc[0]["near"]}, middle={df_jnluc.iloc[0]["middle"]}, far={df_jnluc.iloc[0]["far"]}')
 
-    # ══════════════════════════════════════════════════════════════════════
-    # 4.5 订单平均速度
-    # ══════════════════════════════════════════════════════════════════════
+
     print()
     print('--- 4.5 订单平均速度 ---')
-    df['avg_speed'] = df['OD_Dis_km'] / (df['OD_TIME_s'] / 3600)  # km/h
+    df['avg_speed'] = df['OD_Dis_km'] / (df['OD_TIME_s'] / 3600)
 
-    # 过滤无效速度（inf / NaN / <=0）
+
     valid_speed = (
         df['avg_speed'].notna()
         & np.isfinite(df['avg_speed'])
@@ -203,9 +190,7 @@ def main() -> None:
     df_speed_hour.to_csv(speed_path, index=False)
     print(f'  保存: {speed_path} ({len(df_speed_hour)} 行)')
 
-    # ══════════════════════════════════════════════════════════════════════
-    # 4.6 载客出租车数量统计
-    # ══════════════════════════════════════════════════════════════════════
+
     print()
     print('--- 4.6 载客出租车数量统计 ---')
     print(f'读取数据: {clean_path} (chunked)')
@@ -237,7 +222,7 @@ def main() -> None:
 
     print(f'  总处理行数: {n_total_rows:,}')
 
-    # 构建输出 DataFrame
+
     df_occupied = pd.DataFrame([
         {'TIME': t, 'number': len(ids)}
         for t, ids in sorted(occupied_per_minute.items())
@@ -247,9 +232,7 @@ def main() -> None:
     df_occupied.to_csv(occupied_path, index=False)
     print(f'  保存: {occupied_path} ({len(df_occupied)} 行)')
 
-    # ══════════════════════════════════════════════════════════════════════
-    # 汇总日志
-    # ══════════════════════════════════════════════════════════════════════
+
     print()
     print('=' * 60)
     print('数据分析汇总')
@@ -263,7 +246,7 @@ def main() -> None:
     print(f'  [4.6] 载客出租车分钟数:      {len(df_occupied):>6}')
     print(f'  {"─" * 40}')
     print(f'  OD对总数:                    {total_od_pairs:>6}')
-    # 验证: 时段统计总和 == OD对总数
+
     match = '✓' if hourly_sum == total_od_pairs else '✗'
     print(f'  验证: 时段统计总和={hourly_sum} == OD对总数={total_od_pairs} {match}')
     print('=' * 60)

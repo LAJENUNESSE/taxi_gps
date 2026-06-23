@@ -4,7 +4,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# ── Matplotlib CJK font setup ─────────────────────────────────────────────
 
 def setup_matplotlib_cjk() -> None:
     """Configure matplotlib to render CJK characters.
@@ -42,8 +41,6 @@ def setup_matplotlib_cjk() -> None:
     logger.info('matplotlib CJK font set to %s', chosen)
 
 
-# ── Haversine ──────────────────────────────────────────────────────────────
-
 def haversine_km(
     lat1: float, lon1: float,
     lat2: float, lon2: float,
@@ -59,7 +56,7 @@ def haversine_km(
     -------
     float — distance in kilometres.
     """
-    R = 6371.0  # Earth mean radius, km
+    R = 6371.0
 
     φ1 = math.radians(lat1)
     φ2 = math.radians(lat2)
@@ -74,8 +71,6 @@ def haversine_km(
 
     return R * c
 
-
-# ── I/O helpers ────────────────────────────────────────────────────────────
 
 def assert_input_exists(path: str) -> None:
     """Raise ``FileNotFoundError`` if *path* does not exist."""

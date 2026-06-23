@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """字段名对齐 — 将流水线输出 CSV 的字段名改为实训V_项目介绍.md 要求的命名规范。
 
 字段名对照表（实训V_项目介绍.md Lines 28-44）：
@@ -29,10 +29,12 @@ import sys
 
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 from src.config import DATA_DIR
 
-# ── 字段映射 ────────────────────────────────────────────────────────────────
+
 ORDERS_RENAME = {
     '车辆id': 'O_COMMADDR',
     '开始时间': 'O_time',
@@ -85,7 +87,7 @@ def fix() -> None:
             continue
 
         df = pd.read_csv(src)
-        # 只重命名 mapping 中存在的列，忽略不存在的
+
         df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
 
         stem, ext = os.path.splitext(fname)

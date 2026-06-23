@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """出租车GPS数据流向图 — 基于百度地图JavaScript API绘制OD流量线
 
 将OD对按网格聚合 → 取Top N流量 → 过滤同格子流向 → 生成standalone HTML
@@ -12,7 +12,9 @@ from pathlib import Path
 
 import pandas as pd
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from src.config import (
     BAIDU_MAP_API_KEY,
@@ -48,7 +50,7 @@ def _aggregate_flows(df: pd.DataFrame) -> pd.DataFrame:
     )
     print(f'  聚合后 OD 对总数: {len(flows):,}')
 
-    # Filter out same-grid flows (zero-length, invisible)
+
     same_grid = (
         (flows['s_lon'] == flows['e_lon'])
         & (flows['s_lat'] == flows['e_lat'])
@@ -69,7 +71,7 @@ def _get_map_center(flows: pd.DataFrame) -> tuple[float, float]:
 
 
 def _build_flow_data_json(flows: pd.DataFrame) -> str:
-    # Sort ascending so lowest-weight drawn first, highest on top
+
     flows = flows.sort_values('count', ascending=True).reset_index(drop=True)
     max_c = flows['count'].max()
 
@@ -77,7 +79,7 @@ def _build_flow_data_json(flows: pd.DataFrame) -> str:
     for _, r in flows.iterrows():
         weight = r['count'] / max_c
         rows.append(
-            # [lat, lon] for start, [lat, lon] for end, count, weight
+
             f'    {{s:[{r["s_lat"]:.4f},{r["s_lon"]:.4f}],'
             f'e:[{r["e_lat"]:.4f},{r["e_lon"]:.4f}],'
             f'c:{int(r["count"])},w:{weight:.4f}}}'

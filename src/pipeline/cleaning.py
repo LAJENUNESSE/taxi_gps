@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """出租车GPS数据清洗 — 完整流水线
 
 排序 → 类型转换 → 坐标/速度过滤 → 重复值去重 → 异常值剔除 → 保存结果
@@ -10,8 +10,9 @@ import sys
 import numpy as np
 import pandas as pd
 
-# Ensure src/ is importable from project root
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from src.config import (
     ANOMALY_TIME_THRESHOLD,
@@ -25,7 +26,7 @@ from src.config import (
 )
 from src.utils import assert_input_exists
 
-MAX_IMPLIED_SPEED = 150  # km/h — 相邻点反推速度上限，超过视为跳点
+MAX_IMPLIED_SPEED = 150
 
 
 def _haversine_km(lon1, lat1, lon2, lat2):
@@ -43,7 +44,7 @@ def _haversine_km(lon1, lat1, lon2, lat2):
 
 
 def main() -> None:
-    # ── 0. Paths & input assertion ───────────────────────────────────────
+
     data_path = os.path.join(PROJECT_ROOT, DATA_FILE)
     assert_input_exists(data_path)
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -52,34 +53,34 @@ def main() -> None:
     stage2_path = os.path.join(DATA_DIR, 'clean_stage2.csv')
     final_path = os.path.join(DATA_DIR, 'clean.csv')
 
-    # ── 1. 读取数据（显式 dtype，防 OOM） ─────────────────────────────────
+
     print(f'读取数据: {data_path}')
     df = pd.read_csv(data_path, header=None, names=COLUMNS, dtype=DTYPES)
     n_original = len(df)
     print(f'  原始行数: {n_original:,}')
 
-    # ── 2. 排序 ──────────────────────────────────────────────────────────
+
     print('排序 by (id, time) ...')
     df = df.sort_values(by=['id', 'time']).reset_index(drop=True)
     n_after_sort = len(df)
 
-    # ── 3. 单调性校验 ────────────────────────────────────────────────────
+
     print('单调性校验 ...')
     t_dt = pd.to_datetime(df['time'], format='%H:%M:%S')
     t_diff = t_dt.groupby(df['id']).diff().dropna()
     n_non_monotonic = (t_diff.dt.total_seconds() < -1).sum()
     print(f'  Time非单调递减数（按id分组）: {n_non_monotonic}')
 
-    # 转换为 datetime 供后续步骤使用（时间差计算、异常检测等）
+
     df['time'] = t_dt
     print(f'  排序后行数: {n_after_sort:,}')
 
-    # ── 保存 Stage 1 ─────────────────────────────────────────────────────
+
     print(f'保存中间结果: {stage1_path}')
     df.to_csv(stage1_path, index=False)
     print(f'  → {stage1_path}')
 
-    # ── 4. 坐标过滤 ──────────────────────────────────────────────────────
+
     n_before = len(df)
     b = SHENZHEN_BOUNDS
     df = df[
@@ -89,13 +90,13 @@ def main() -> None:
     n_coord_removed = n_before - len(df)
     print(f'  坐标过滤删除: {n_coord_removed:,}')
 
-    # ── 5. 速度过滤 ──────────────────────────────────────────────────────
+
     n_before = len(df)
     df = df[(df['speed'] >= 0) & (df['speed'] <= SPEED_MAX)]
     n_speed_removed = n_before - len(df)
     print(f'  速度过滤删除: {n_speed_removed:,}')
 
-    # ── 6. 跳点过滤 ──────────────────────────────────────────────────────
+
     print('跳点过滤（按车辆分组，剔除 implied_speed 异常点）...')
     n_before_jump = len(df)
     prev_time = df.groupby('id')['time'].shift(1)
@@ -109,14 +110,14 @@ def main() -> None:
     n_jump_removed = n_before_jump - len(df)
     print(f'  跳点过滤删除: {n_jump_removed:,}')
 
-    # ── 7. 去重 ──────────────────────────────────────────────────────────
+
     print('去重处理 ...')
     n_before_dedup = len(df)
     df_dup = df[df.duplicated(subset=['id', 'time'], keep=False)].reset_index()
     print(f'  重复行数: {len(df_dup):,}')
 
     if len(df_dup) > 0:
-        # 对重复数据分组统计
+
         dup_grp = (
             df_dup.groupby(['id', 'time'])
             .agg(stat_cnt=('status', 'count'), stat_sum=('status', 'sum'))
@@ -131,44 +132,44 @@ def main() -> None:
             total = int(x['stat_sum'].iloc[0])
 
             if cnt == 2:
-                if total == 0:   # 两个 status 均为 0
+                if total == 0:
                     return int(x['index'].iloc[0])
-                elif total == 1:  # 一个 0，一个 1 → 保留 status=0
+                elif total == 1:
                     return int(x.loc[x['status'] == 0, 'index'].iloc[0])
-                elif total == 2:  # 两个 status 均为 1
+                elif total == 2:
                     return int(x['index'].iloc[0])
             elif cnt == 3:
-                if total == 0:   # 三个 status 均为 0
+                if total == 0:
                     return int(x['index'].iloc[0])
-                elif total == 1:  # 一个 1，两个 0 → 保留第一个 status=0
+                elif total == 1:
                     return int(x.loc[x['status'] == 0, 'index'].iloc[0])
-                elif total == 2:  # 两个 1，一个 0 → 保留第一个 status=1
+                elif total == 2:
                     return int(x.loc[x['status'] == 1, 'index'].iloc[0])
-                elif total == 3:  # 三个 status 均为 1
+                elif total == 3:
                     return int(x['index'].iloc[0])
 
-            # 兜底：返回第一个索引
+
             return int(x['index'].iloc[0])
 
         kp_index = dup_mrg.groupby(['id', 'time'], group_keys=False).apply(dup_check)
 
-        # 找出要删除的行（在 dup_mrg 中但不在 kp_index 中的）
+
         drp_index = dup_mrg.loc[~dup_mrg['index'].isin(kp_index.values), 'index']
         df = df.loc[~df.index.isin(drp_index.values)]
 
     n_dedup_removed = n_before_dedup - len(df)
     print(f'  去重删除: {n_dedup_removed:,}')
 
-    # ── 保存 Stage 2 ─────────────────────────────────────────────────────
+
     print(f'保存中间结果: {stage2_path}')
     df.to_csv(stage2_path, index=False)
     print(f'  → {stage2_path}')
 
-    # ── 8. 异常检测 ──────────────────────────────────────────────────────
+
     print('异常值检测 ...')
     n_before_anom = len(df)
 
-    # shift 产生 6 个辅助列
+
     df['status_up'] = df['status'].shift(1)
     df['status_down'] = df['status'].shift(-1)
     df['id_up'] = df['id'].shift(1)
@@ -176,7 +177,7 @@ def main() -> None:
     df['time_up'] = df['time'].shift(1)
     df['time_down'] = df['time'].shift(-1)
 
-    # 5 个条件
+
     cond_1 = df['status'] != df['status_down']
     cond_2 = df['status'] != df['status_up']
     cond_3 = df['id'] == df['id_up']
@@ -195,12 +196,11 @@ def main() -> None:
     n_anomaly_removed = n_before_anom - len(df)
     print(f'  异常删除: {n_anomaly_removed:,}')
 
-    # ── 9. 清理辅助列 ────────────────────────────────────────────────────
-    # 保留 status_up 和 id_up 供后续 OD 提取使用
+
     cols_to_drop = ['status_down', 'id_down', 'time_up', 'time_down']
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
 
-    # ── 10. 车辆级别过滤 ────────────────────────────────────────────────
+
     print('车辆级别过滤 ...')
     n_before_vehicle = len(df)
 
@@ -222,13 +222,13 @@ def main() -> None:
     n_vehicle_removed = n_before_vehicle - len(df)
     print(f'  车辆过滤删除行数: {n_vehicle_removed:,}')
 
-    # ── 保存最终结果 ─────────────────────────────────────────────────────
+
     n_final = len(df)
     print(f'保存最终结果: {final_path}')
     df.to_csv(final_path, index=False)
     print(f'  → {final_path} (行数: {n_final:,})')
 
-    # ── 11. 汇总日志 ─────────────────────────────────────────────────────
+
     print()
     print('=' * 60)
     print('清洗汇总')
