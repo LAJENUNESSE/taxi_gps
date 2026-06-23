@@ -173,6 +173,9 @@ def _generate_html(payload: dict) -> str:
     font:12px/1.5 "Microsoft YaHei",sans-serif;
     display:none; max-width:280px;
   }}
+  #heatCanvas {{
+    position:absolute; top:0; left:0; z-index:50; pointer-events:none;
+  }}
 </style>
 </head>
 <body>
@@ -205,7 +208,7 @@ var heatData = {hours_json};
 var globalMax = {global_max};
 
 var map = null;
-var heatmapOverlay = null;
+var heatCtx = null;
 var playTimer = null;
 var currentHour = 0;
 
@@ -218,6 +221,10 @@ function initMap() {{
   map.addControl(new BMap.ScaleControl());
   map.addControl(new BMap.MapTypeControl());
 
+  // 热力 Canvas
+  var canvas = document.getElementById('heatCanvas');
+  heatCtx = canvas.getContext('2d');
+
   // 点击地图显示坐标信息
   map.addEventListener('click', function(e) {{
     var p = e.point;
@@ -228,29 +235,75 @@ function initMap() {{
       '<br>当前时段: ' + currentHour + ':00 — ' + currentHour + ':59' +
       '<br>该时段上客网格: ' + (heatData[currentHour] ? heatData[currentHour].length : 0);
     clearTimeout(toast._t);
-    toast._t = setTimeout(function() {{
-      toast.style.display = 'none';
-    }}, 3000);
+    toast._t = setTimeout(function() {{ toast.style.display = 'none'; }}, 3000);
   }});
 
-  // 热力图叠加层
-  heatmapOverlay = new BMapLib.HeatmapOverlay({{radius: 22, visible: true}});
-  map.addOverlay(heatmapOverlay);
-  heatmapOverlay.setDataSet({{
-    data: [],
-    max: globalMax
-  }});
+  // 地图移动/缩放时重绘
+  map.addEventListener('moveend', redrawHeat);
+  map.addEventListener('zoomend', function() {{ resizeCanvas(); redrawHeat(); }});
+  map.addEventListener('resize', function() {{ resizeCanvas(); redrawHeat(); }});
 
+  resizeCanvas();
   updateHour(0);
 }}
 
-// 把 [lng, lat, count] 数组转成 HeatmapOverlay 接受的对象数组
-function toDataset(rows) {{
-  var out = [];
-  for (var i = 0; i < rows.length; i++) {{
-    out.push({{lng: rows[i][0], lat: rows[i][1], count: rows[i][2]}});
+function resizeCanvas() {{
+  var s = map.getSize();
+  var c = document.getElementById('heatCanvas');
+  c.width = s.width;
+  c.height = s.height;
+  c.style.width = s.width + 'px';
+  c.style.height = s.height + 'px';
+}}
+
+function getColor(c) {{
+  // 基于 globalMax 的归一化值 -> 蓝(0,0,255) → 绿(0,255,0) → 黄(255,255,0) → 红(255,0,0)
+  var t = Math.min(1, c / globalMax);
+  var r, g, b;
+  if (t < 0.33) {{
+    var s = t / 0.33;
+    r = Math.round(0 + s * 0);
+    g = Math.round(0 + s * 255);
+    b = Math.round(255 + s * (0 - 255));
+  }} else if (t < 0.66) {{
+    var s = (t - 0.33) / 0.33;
+    r = Math.round(0 + s * 255);
+    g = Math.round(255 + s * (255 - 255));
+    b = Math.round(0 + s * (0 - 0));
+  }} else {{
+    var s = (t - 0.66) / 0.34;
+    r = Math.round(255 + s * (255 - 255));
+    g = Math.round(255 + s * (0 - 255));
+    b = Math.round(0 + s * (0 - 0));
   }}
-  return out;
+  return 'rgb(' + r + ',' + g + ',' + b + ')';
+}}
+
+function redrawHeat() {{
+  if (!heatCtx || !map) return;
+  var rows = heatData[currentHour] || [];
+  var s = map.getSize();
+  if (!s) return;
+  heatCtx.clearRect(0, 0, s.width, s.height);
+  if (!rows.length) return;
+
+  var rad = 22;
+  // 先画大半径低透明度底色
+  for (var pass = 0; pass < 3; pass++) {{
+    var r = [rad * 1.5, rad, rad * 0.4][pass];
+    for (var i = 0; i < rows.length; i++) {{
+      var d = rows[i];
+      var alpha = Math.min(0.8, (d[2] / globalMax) * 2.5) * [0.12, 0.25, 0.55][pass];
+      if (alpha < 0.02) continue;
+      var px = map.pointToPixel(new BMap.Point(d[0], d[1]));
+      heatCtx.fillStyle = getColor(d[2]);
+      heatCtx.globalAlpha = alpha;
+      heatCtx.beginPath();
+      heatCtx.arc(px.x, px.y, r, 0, Math.PI * 2);
+      heatCtx.fill();
+    }}
+  }}
+  heatCtx.globalAlpha = 1;
 }}
 
 function updateHour(h) {{
@@ -260,36 +313,23 @@ function updateHour(h) {{
   document.getElementById('hour-end').textContent = h;
   var rows = heatData[h] || [];
   document.getElementById('count-display').textContent = rows.length;
-  if (heatmapOverlay) {{
-    heatmapOverlay.setDataSet({{
-      data: toDataset(rows),
-      max: globalMax
-    }});
-  }}
+  redrawHeat();
 }}
 
-// 滑块交互
 document.getElementById('slider').addEventListener('input', function(e) {{
-  var h = parseInt(e.target.value, 10);
   stopPlay();
-  updateHour(h);
+  updateHour(parseInt(e.target.value, 10));
 }});
 
-// 自动播放
 document.getElementById('play-toggle').addEventListener('click', function() {{
-  if (playTimer) {{
-    stopPlay();
-  }} else {{
-    startPlay();
-  }}
+  playTimer ? stopPlay() : startPlay();
 }});
 
 function startPlay() {{
   var btn = document.getElementById('play-toggle');
   btn.textContent = '■ 停止播放';
   playTimer = setInterval(function() {{
-    var next = (currentHour + 1) % 24;
-    updateHour(next);
+    updateHour((currentHour + 1) % 24);
   }}, 1200);
 }}
 
@@ -301,11 +341,7 @@ function stopPlay() {{
   }}
 }}
 </script>
-
-<!-- 百度地图 JS API v3.0 -->
 <script src="https://api.map.baidu.com/api?v=3.0&ak={BAIDU_MAP_API_KEY}&callback=initMap"></script>
-<!-- 热力图库 -->
-<script src="https://api.map.baidu.com/library/Heatmap/2.0/src/Heatmap_min.js"></script>
 </body>
 </html>'''
 

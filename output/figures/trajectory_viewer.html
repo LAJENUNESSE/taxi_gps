@@ -128,6 +128,10 @@
     <span class="lbl" id="spdVal">15×</span>
   </div>
   <div id="progress"><div></div></div>
+  <div style="margin-top:12px; display:flex; align-items:center; gap:8px;">
+    <input type="checkbox" id="rawToggle" style="accent-color:#4d8cff; cursor:pointer;">
+    <label for="rawToggle" style="font-size:12px; color:#8290c4; cursor:pointer;">显示原始轨迹</label>
+  </div>
 
   <h3 style="margin-top:18px;">轨迹信息</h3>
   <div class="stat"><span class="k">点数</span><span class="v" id="s-pts">—</span></div>
@@ -157,6 +161,7 @@ var playRate = 15;            // 每帧步进点数
 var overlays = [];            // 当前车辆叠加物（折线段+标记+回放点）
 var playMarker = null;
 var playPos = [];
+var showRaw = false;
 
 var DATA_FILE = 'trajectory_sample.json';
 
@@ -190,9 +195,9 @@ function statusBadge(st) {
 }
 
 function buildPolyline(pts) {
-  // 按相邻段的速度着色，连续相同颜色合并以减少叠加物
   var segs = [];
   for (var i = 1; i < pts.length; i++) {
+    if (pts[i][5] === 1) continue;
     var sp = (pts[i-1][4] + pts[i][4]) / 2;
     var col = speedColor(sp);
     if (segs.length && segs[segs.length-1].col === col) {
@@ -216,23 +221,8 @@ function buildOrderMarkers(orders) {
     var o = orders[i];
     var pt = new BMap.Point(o.lon, o.lat);
     var isPick = o.type === 'pickup';
-    var icon = new BMap.Icon(
-      'https://api.map.baidu.com/images/markers.png',
-      new BMap.Size(23, 25),
-      {offset: new BMap.Size(10, 25),
-        imageOffset: new BMap.Size(isPick ? 0 : -23, 0)}
-    );
-    // 自定义颜色标记：用带标签的小圆点更清晰
     var col = isPick ? '#1aa240' : '#d8232f';
-    var marker = new BMap.Marker(pt, {
-      icon: new BMap.Icon(
-        'data:image/svg+xml;base64,' + btoa(
-          '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="30" viewBox="0 0 22 30">'+
-          '<path d="M11 0C5 0 0 5 0 11c0 8 11 19 11 19s11-11 11-19C22 5 17 0 11 0z" fill="'+col+'"/>'+
-          '<circle cx="11" cy="11" r="4" fill="#fff"/></svg>'
-        )
-      )
-    });
+    var marker = new BMap.Marker(pt);
     var label = new BMap.Label(
       (isPick ? '上客' : '下客') + '<br>' + o.time,
       {offset: new BMap.Size(14, -4)}
@@ -252,17 +242,16 @@ function renderVehicle(v) {
   clearOverlays();
   curVid = v.id;
   curIdx = 0;
-  var pts = v.points;
+  var pts = showRaw ? v.points_raw : v.points;
+  if (!pts || !pts.length) return;
   playPos = pts;
   buildPolyline(pts);
   buildOrderMarkers(v.orders);
-  // 回放标记
   playMarker = new BMap.Marker(new BMap.Point(pts[0][1], pts[0][2]));
   playMarker.setAnimation(BMAP_ANIMATION_BOUNCE);
   map.addOverlay(playMarker);
   overlays.push(playMarker);
 
-  // 视图自适应到轨迹范围
   var bpoints = pts.map(function(p){ return new BMap.Point(p[1], p[2]); });
   var view = map.getViewport(bpoints);
   map.centerAndZoom(view.center, view.zoom);
@@ -365,6 +354,12 @@ function initMap() {
   document.getElementById('btnPlay').addEventListener('click', play);
   document.getElementById('btnPause').addEventListener('click', pause);
   document.getElementById('btnReset').addEventListener('click', reset);
+
+  document.getElementById('rawToggle').addEventListener('change', function(e){
+    showRaw = e.target.checked;
+    var sel = document.getElementById('vehicleSel');
+    if (TRAJ && sel.value !== '') renderVehicle(TRAJ[parseInt(sel.value)]);
+  });
 
   var spd = document.getElementById('spdRange');
   var spv = document.getElementById('spdVal');

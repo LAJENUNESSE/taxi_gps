@@ -25,6 +25,22 @@ from src.config import (
 )
 from src.utils import assert_input_exists
 
+MAX_IMPLIED_SPEED = 150  # km/h — 相邻点反推速度上限，超过视为跳点
+
+
+def _haversine_km(lon1, lat1, lon2, lat2):
+    """向量化计算两点间距离(km)，支持 NaN 传播。"""
+    R = 6371.0
+    lon1_r = np.radians(lon1.astype(np.float64))
+    lat1_r = np.radians(lat1.astype(np.float64))
+    lon2_r = np.radians(lon2.astype(np.float64))
+    lat2_r = np.radians(lat2.astype(np.float64))
+    dlon = lon2_r - lon1_r
+    dlat = lat2_r - lat1_r
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat1_r) * np.cos(lat2_r) * np.sin(dlon / 2) ** 2
+    c = 2 * np.arcsin(np.clip(np.sqrt(a), 0, 1))
+    return R * c
+
 
 def main() -> None:
     # ── 0. Paths & input assertion ───────────────────────────────────────
@@ -79,7 +95,21 @@ def main() -> None:
     n_speed_removed = n_before - len(df)
     print(f'  速度过滤删除: {n_speed_removed:,}')
 
-    # ── 6. 去重 ──────────────────────────────────────────────────────────
+    # ── 6. 跳点过滤 ──────────────────────────────────────────────────────
+    print('跳点过滤（按车辆分组，剔除 implied_speed 异常点）...')
+    n_before_jump = len(df)
+    prev_time = df.groupby('id')['time'].shift(1)
+    prev_long = df.groupby('id')['long'].shift(1)
+    prev_lati = df.groupby('id')['lati'].shift(1)
+    dt = (df['time'] - prev_time).dt.total_seconds()
+    dist_km = _haversine_km(prev_long, prev_lati, df['long'], df['lati'])
+    implied_speed = dist_km / (dt / 3600)
+    drop_jump = (dt <= 0) | (implied_speed > MAX_IMPLIED_SPEED)
+    df = df[~drop_jump.fillna(False)].reset_index(drop=True)
+    n_jump_removed = n_before_jump - len(df)
+    print(f'  跳点过滤删除: {n_jump_removed:,}')
+
+    # ── 7. 去重 ──────────────────────────────────────────────────────────
     print('去重处理 ...')
     n_before_dedup = len(df)
     df_dup = df[df.duplicated(subset=['id', 'time'], keep=False)].reset_index()
@@ -134,7 +164,7 @@ def main() -> None:
     df.to_csv(stage2_path, index=False)
     print(f'  → {stage2_path}')
 
-    # ── 7. 异常检测 ──────────────────────────────────────────────────────
+    # ── 8. 异常检测 ──────────────────────────────────────────────────────
     print('异常值检测 ...')
     n_before_anom = len(df)
 
@@ -165,12 +195,12 @@ def main() -> None:
     n_anomaly_removed = n_before_anom - len(df)
     print(f'  异常删除: {n_anomaly_removed:,}')
 
-    # ── 8. 清理辅助列 ────────────────────────────────────────────────────
+    # ── 9. 清理辅助列 ────────────────────────────────────────────────────
     # 保留 status_up 和 id_up 供后续 OD 提取使用
     cols_to_drop = ['status_down', 'id_down', 'time_up', 'time_down']
     df = df.drop(columns=[c for c in cols_to_drop if c in df.columns])
 
-    # ── 8.5 车辆级别过滤 ────────────────────────────────────────────────
+    # ── 10. 车辆级别过滤 ────────────────────────────────────────────────
     print('车辆级别过滤 ...')
     n_before_vehicle = len(df)
 
@@ -198,7 +228,7 @@ def main() -> None:
     df.to_csv(final_path, index=False)
     print(f'  → {final_path} (行数: {n_final:,})')
 
-    # ── 9. 汇总日志 ──────────────────────────────────────────────────────
+    # ── 11. 汇总日志 ─────────────────────────────────────────────────────
     print()
     print('=' * 60)
     print('清洗汇总')
@@ -207,6 +237,7 @@ def main() -> None:
     print(f'  排序后行数:   {n_after_sort:>12,}')
     print(f'  坐标过滤删除: {n_coord_removed:>12,}')
     print(f'  速度过滤删除: {n_speed_removed:>12,}')
+    print(f'  跳点过滤删除: {n_jump_removed:>12,}')
     print(f'  去重删除:     {n_dedup_removed:>12,}')
     print(f'  异常删除:     {n_anomaly_removed:>12,}')
     print(f'  车辆过滤删除: {n_vehicle_removed:>12,}')

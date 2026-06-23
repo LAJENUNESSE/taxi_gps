@@ -15,8 +15,10 @@ trajectory_viewer.html（百度地图 JS API v3.0）：速度渐变折线、回�
 
 import argparse
 import json
+import math
 import os
 import sys
+from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
@@ -32,6 +34,135 @@ from src.utils import assert_input_exists
 N_SAMPLES = 100                 # 选取的车辆数
 MAX_POINTS_PER_VEHICLE = 1500   # 单车轨迹点上限（超出则均匀降采样）
 SHENZHEN_CENTER = (114.05, 22.55)  # 经度, 纬度
+
+# ── 轨迹漂移过滤参数 ────────────────────────────────────────────────────────
+MAX_IMPLIED_SPEED_KMH = 150
+MAX_TIME_GAP_S = 300
+STOP_SPEED_KMH = 5
+STOP_CLUSTER_RADIUS_M = 80
+STOP_MIN_POINTS = 5
+
+
+def _parse_time_seconds(t):
+    if ' ' in t:
+        t = t.split(' ')[1]
+    h, m, s = map(int, t.split(':'))
+    return h * 3600 + m * 60 + s
+
+
+def _haversine_m(lon1, lat1, lon2, lat2):
+    R = 6371000
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def _filter_trajectory_drift(pts):
+    """对单车轨迹点做漂移过滤与停留点压缩，返回 (过滤后点集, 统计信息)。"""
+    if not pts:
+        return pts, {}
+
+    parsed = []
+    for p in pts:
+        try:
+            ts = _parse_time_seconds(p[0])
+        except Exception:
+            ts = None
+        parsed.append({
+            'time_str': p[0],
+            'lon': float(p[1]),
+            'lat': float(p[2]),
+            'status': int(p[3]),
+            'speed': int(p[4]),
+            'ts': ts,
+        })
+
+    if any(pp['ts'] is None for pp in parsed):
+        return [[p[0], p[1], p[2], p[3], p[4], 0] for p in pts], {'skipped': True}
+
+    parsed.sort(key=lambda x: x['ts'])
+
+    kept = [parsed[0]]
+    jump_removed = 0
+    for i in range(1, len(parsed)):
+        prev = kept[-1]
+        cur = parsed[i]
+        dt = cur['ts'] - prev['ts']
+        if dt <= 0:
+            jump_removed += 1
+            continue
+        dist_m = _haversine_m(prev['lon'], prev['lat'], cur['lon'], cur['lat'])
+        implied_speed = (dist_m / 1000) / (dt / 3600)
+        if implied_speed > MAX_IMPLIED_SPEED_KMH:
+            jump_removed += 1
+            continue
+        kept.append(cur)
+
+    compressed = []
+    stop_removed = 0
+    i = 0
+    while i < len(kept):
+        cur = kept[i]
+        if cur['speed'] >= STOP_SPEED_KMH:
+            compressed.append(cur)
+            i += 1
+            continue
+
+        j = i + 1
+        cluster = [cur]
+        centroid_lon = cur['lon']
+        centroid_lat = cur['lat']
+        while j < len(kept) and kept[j]['speed'] < STOP_SPEED_KMH:
+            cluster.append(kept[j])
+            centroid_lon += kept[j]['lon']
+            centroid_lat += kept[j]['lat']
+            j += 1
+
+        if len(cluster) >= STOP_MIN_POINTS:
+            max_dist = 0
+            for a in cluster:
+                for b in cluster:
+                    d = _haversine_m(a['lon'], a['lat'], b['lon'], b['lat'])
+                    if d > max_dist:
+                        max_dist = d
+            if max_dist <= STOP_CLUSTER_RADIUS_M:
+                centroid_lon /= len(cluster)
+                centroid_lat /= len(cluster)
+                avg_speed = sum(p['speed'] for p in cluster) / len(cluster)
+                compressed.append({
+                    'time_str': cluster[0]['time_str'],
+                    'lon': centroid_lon,
+                    'lat': centroid_lat,
+                    'status': cluster[-1]['status'],
+                    'speed': round(avg_speed),
+                    'ts': cluster[0]['ts'],
+                })
+                stop_removed += len(cluster) - 1
+                i = j
+                continue
+        compressed.extend(cluster)
+        i = j
+
+    result = []
+    for idx, p in enumerate(compressed):
+        gap = 0
+        if idx > 0:
+            dt = p['ts'] - compressed[idx - 1]['ts']
+            if dt > MAX_TIME_GAP_S:
+                gap = 1
+        result.append([p['time_str'], round(p['lon'], 6), round(p['lat'], 6),
+                       p['status'], p['speed'], gap])
+
+    stats = {
+        'original': len(pts),
+        'jump_removed': jump_removed,
+        'stop_removed': stop_removed,
+        'final': len(result),
+    }
+    return result, stats
 
 
 # ── 车辆选取 ────────────────────────────────────────────────────────────────
@@ -170,20 +301,29 @@ def _stream_trajectories(vd_path: str, target_vids: list[int],
 
 # ── 数据文件生成 ────────────────────────────────────────────────────────────
 def _build_sample_json(vids: list[int], traj_map: dict,
-                       order_index: dict, out_path: str) -> None:
+                        order_index: dict, out_path: str) -> dict:
+    """生成 trajectory_sample.json，返回过滤统计信息。"""
     vehicles = []
+    total_stats = {'original': 0, 'jump_removed': 0, 'stop_removed': 0, 'final': 0}
     for vid in vids:
         pts = traj_map.get(vid, [])
         if not pts:
             continue
-        points = [
-            [p[0], round(float(p[1]), 6), round(float(p[2]), 6),
-             int(p[3]), int(p[4])]
-            for p in pts
-        ]
+        filtered, stats = _filter_trajectory_drift(pts)
+        for k in total_stats:
+            total_stats[k] += stats.get(k, 0)
         vehicles.append({
             'id': vid,
-            'points': points,
+            'points_raw': [
+                [p[0], round(float(p[1]), 6), round(float(p[2]), 6),
+                 int(p[3]), int(p[4]), 0]
+                for p in pts
+            ],
+            'points': [
+                [p[0], round(float(p[1]), 6), round(float(p[2]), 6),
+                 int(p[3]), int(p[4]), int(p[5])]
+                for p in filtered
+            ],
             'orders': order_index.get(vid, []),
         })
     payload = {'vehicles': vehicles}
@@ -191,6 +331,7 @@ def _build_sample_json(vids: list[int], traj_map: dict,
         json.dump(payload, f, ensure_ascii=False)
     size = os.path.getsize(out_path)
     print(f'  {out_path} ({size / 1024 / 1024:.2f} MB, {len(vehicles)} 辆车)')
+    return total_stats
 
 
 # ── HTML 生成 ───────────────────────────────────────────────────────────────
@@ -325,6 +466,10 @@ def _generate_html(out_json_name: str) -> str:
     <span class="lbl" id="spdVal">15×</span>
   </div>
   <div id="progress"><div></div></div>
+  <div style="margin-top:12px; display:flex; align-items:center; gap:8px;">
+    <input type="checkbox" id="rawToggle" style="accent-color:#4d8cff; cursor:pointer;">
+    <label for="rawToggle" style="font-size:12px; color:#8290c4; cursor:pointer;">显示原始轨迹</label>
+  </div>
 
   <h3 style="margin-top:18px;">轨迹信息</h3>
   <div class="stat"><span class="k">点数</span><span class="v" id="s-pts">—</span></div>
@@ -354,6 +499,7 @@ var playRate = 15;            // 每帧步进点数
 var overlays = [];            // 当前车辆叠加物（折线段+标记+回放点）
 var playMarker = null;
 var playPos = [];
+var showRaw = false;
 
 var DATA_FILE = '{out_json_name}';
 
@@ -387,9 +533,9 @@ function statusBadge(st) {{
 }}
 
 function buildPolyline(pts) {{
-  // 按相邻段的速度着色，连续相同颜色合并以减少叠加物
   var segs = [];
   for (var i = 1; i < pts.length; i++) {{
+    if (pts[i][5] === 1) continue;
     var sp = (pts[i-1][4] + pts[i][4]) / 2;
     var col = speedColor(sp);
     if (segs.length && segs[segs.length-1].col === col) {{
@@ -413,23 +559,8 @@ function buildOrderMarkers(orders) {{
     var o = orders[i];
     var pt = new BMap.Point(o.lon, o.lat);
     var isPick = o.type === 'pickup';
-    var icon = new BMap.Icon(
-      'https://api.map.baidu.com/images/markers.png',
-      new BMap.Size(23, 25),
-      {{offset: new BMap.Size(10, 25),
-        imageOffset: new BMap.Size(isPick ? 0 : -23, 0)}}
-    );
-    // 自定义颜色标记：用带标签的小圆点更清晰
     var col = isPick ? '#1aa240' : '#d8232f';
-    var marker = new BMap.Marker(pt, {{
-      icon: new BMap.Icon(
-        'data:image/svg+xml;base64,' + btoa(
-          '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="30" viewBox="0 0 22 30">'+
-          '<path d="M11 0C5 0 0 5 0 11c0 8 11 19 11 19s11-11 11-19C22 5 17 0 11 0z" fill="'+col+'"/>'+
-          '<circle cx="11" cy="11" r="4" fill="#fff"/></svg>'
-        )
-      )
-    }});
+    var marker = new BMap.Marker(pt);
     var label = new BMap.Label(
       (isPick ? '上客' : '下客') + '<br>' + o.time,
       {{offset: new BMap.Size(14, -4)}}
@@ -449,17 +580,16 @@ function renderVehicle(v) {{
   clearOverlays();
   curVid = v.id;
   curIdx = 0;
-  var pts = v.points;
+  var pts = showRaw ? v.points_raw : v.points;
+  if (!pts || !pts.length) return;
   playPos = pts;
   buildPolyline(pts);
   buildOrderMarkers(v.orders);
-  // 回放标记
   playMarker = new BMap.Marker(new BMap.Point(pts[0][1], pts[0][2]));
   playMarker.setAnimation(BMAP_ANIMATION_BOUNCE);
   map.addOverlay(playMarker);
   overlays.push(playMarker);
 
-  // 视图自适应到轨迹范围
   var bpoints = pts.map(function(p){{ return new BMap.Point(p[1], p[2]); }});
   var view = map.getViewport(bpoints);
   map.centerAndZoom(view.center, view.zoom);
@@ -563,6 +693,12 @@ function initMap() {{
   document.getElementById('btnPause').addEventListener('click', pause);
   document.getElementById('btnReset').addEventListener('click', reset);
 
+  document.getElementById('rawToggle').addEventListener('change', function(e){{
+    showRaw = e.target.checked;
+    var sel = document.getElementById('vehicleSel');
+    if (TRAJ && sel.value !== '') renderVehicle(TRAJ[parseInt(sel.value)]);
+  }});
+
   var spd = document.getElementById('spdRange');
   var spv = document.getElementById('spdVal');
   spd.addEventListener('input', function(){{
@@ -644,7 +780,10 @@ def main() -> None:
     # 3. 生成 trajectory_sample.json
     sample_path = os.path.join(FIGURES_DIR, 'trajectory_sample.json')
     print('\n生成 trajectory_sample.json ...')
-    _build_sample_json(vids, traj_map, order_index, sample_path)
+    stats = _build_sample_json(vids, traj_map, order_index, sample_path)
+    print(f'  漂移过滤: 原始 {stats["original"]:,} 点, '
+          f'剔除跳点 {stats["jump_removed"]:,}, 压缩停留点 {stats["stop_removed"]:,}, '
+          f'剩余 {stats["final"]:,}')
 
     # 4. 生成 HTML
     html_path = os.path.join(FIGURES_DIR, 'trajectory_viewer.html')
