@@ -29,3 +29,7 @@ src_backup/
 
 # Session artifacts
 .omo/run-continuation/
+
+# Checkpoint evidence (session state, not project code)
+.omo/evidence/
+.omo/boulder.json
