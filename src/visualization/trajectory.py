@@ -486,22 +486,69 @@ def _generate_html(out_json_name: str) -> str:
 
 <script>
 // ── 加载轨迹数据 ────────────────────────────────────────────────────────
+// 渐进式轨迹回放：线随标记逐段延伸，未走段不绘制；requestAnimationFrame 平滑
+// 插值；标记为方向箭头并按行进方向旋转；gap=1 处断开起新折线、标记瞬移。
 var TRAJ = null;
 var map = null;
 var curVid = null;
-var curIdx = 0;
 var playing = false;
-var timer = null;
-var playRate = 15;            // 每帧步进点数
-var overlays = [];            // 当前车辆叠加物（折线段+标记+回放点）
+var rafId = null;             // 单一 rAF 句柄
+var lastTs = 0;               // 上一帧时间戳（ms），用于 dt 计算
+var playRate = 15;            // 速度倍率（1×–60×），滑块即时生效
+var overlays = [];            // 当前车辆叠加物（订单标记+回放点）
+var traveled = [];            // 已走折线段 [{{poly, path, color}}]，每 gap 之间一条
 var playMarker = null;
-var playPos = [];
+var playPos = [];             // 当前车辆的点数组（raw 或 filtered）
 var showRaw = false;
+var EDGES = [];               // 可走边的起点索引集合（pts[i]→pts[i+1] 且 pts[i+1][5]!==1）
+var posF = {{ ei: 0, t: 0 }};   // 位置：在 EDGES[ei] 这条边上、行进了 t 比例（0..1）
+
+// 1× 时每秒推进 1.2 条 GPS 边；60× ≈ 72 边/秒。可按观感微调。
+var BASE_PROGRESS_PER_SEC = 1.2;
+
+// 方向箭头图标（base64 内联，rotation=0 时箭头朝北）
+var ARROW_ICON_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyOCcgaGVpZ2h0PScyOCcgdmlld0JveD0nMCAwIDI4IDI4Jz48cGF0aCBkPSdNMTQgMiBMMjUgMjUgTDE0IDE5IEwzIDI1IFonIGZpbGw9JyMyNTYzZWInIHN0cm9rZT0nI2ZmZmZmZicgc3Ryb2tlLXdpZHRoPScxLjUnIHN0cm9rZS1saW5lam9pbj0ncm91bmQnLz48Y2lyY2xlIGN4PScxNCcgY3k9JzE0JyByPScyJyBmaWxsPScjZmZmZmZmJy8+PC9zdmc+';
+var arrowIcon = null;          // 延迟创建（等 BMap 加载）
 
 var DATA_FILE = '{out_json_name}';
 
+// ── 纯函数（仅用 Math，便于 node 单测） ─────────────────────────────────
+// 朝向角（度）：北=0、顺时针，百度 setRotation 约定。
+function headingDeg(lat1, lon1, lat2, lon2) {{
+  var dy = lat2 - lat1;
+  var dx = (lon2 - lon1) * Math.cos(lat1 * Math.PI / 180);
+  if (dx === 0 && dy === 0) return 0;
+  var h = Math.atan2(dx, dy) * 180 / Math.PI;
+  if (h < 0) h += 360;
+  return h;
+}}
+
+// 按 gap=1 将点序列切成连续段：返回 {{ segments: [[a,b],...], cuts: [gapIdx,...] }}。
+// 单点 → segments:[[0,0]]；尾部 gap 后的单点段被丢弃。
+function segmentAndGapCut(pts) {{
+  var segments = [], cuts = [];
+  if (!pts || !pts.length) return {{ segments: segments, cuts: cuts }};
+  var start = 0;
+  for (var i = 1; i < pts.length; i++) {{
+    if (pts[i][5] === 1) {{
+      if (i - 1 >= start) segments.push([start, i - 1]);
+      cuts.push(i);
+      start = i;
+    }}
+  }}
+  // 末段：丢弃纯单点的尾段（start 与末点重合说明无出边）
+  if (start < pts.length - 1) segments.push([start, pts.length - 1]);
+  else if (pts.length === 1) segments.push([0, 0]);
+  return {{ segments: segments, cuts: cuts }};
+}}
+
+// 线性插值两点 [lon, lat]。
+function interpolatePoint(p1, p2, t) {{
+  return [p1[1] + (p2[1] - p1[1]) * t, p1[2] + (p2[2] - p1[2]) * t];
+}}
+
+// ── 颜色映射（0=蓝, 60=黄, 120=红） ────────────────────────────────────
 function speedColor(s) {{
-  // 0=蓝, 60=黄, 120=红 的 RGB 渐变
   s = Math.max(0, Math.min(120, s));
   var r, g, b;
   if (s < 60) {{
@@ -518,10 +565,18 @@ function speedColor(s) {{
   return '#' + [r,g,b].map(function(c){{ return ('0'+c.toString(16)).slice(-2); }}).join('');
 }}
 
+// ── 叠加物管理 ──────────────────────────────────────────────────────────
 function clearOverlays() {{
   for (var i = 0; i < overlays.length; i++) map.removeOverlay(overlays[i]);
   overlays = [];
+  traveled = [];
   playMarker = null;
+}}
+
+// 仅清空已走折线（保留订单标记与回放标记）
+function clearTraveled() {{
+  for (var i = 0; i < traveled.length; i++) map.removeOverlay(traveled[i].poly);
+  traveled = [];
 }}
 
 function statusBadge(st) {{
@@ -529,26 +584,36 @@ function statusBadge(st) {{
   return '<span class="badge empty">空车</span>';
 }}
 
-function buildPolyline(pts) {{
-  var segs = [];
-  for (var i = 1; i < pts.length; i++) {{
-    if (pts[i][5] === 1) continue;
-    var sp = (pts[i-1][4] + pts[i][4]) / 2;
-    var col = speedColor(sp);
-    if (segs.length && segs[segs.length-1].col === col) {{
-      segs[segs.length-1].pts.push(pts[i]);
-    }} else {{
-      segs.push({{col: col, pts: [pts[i-1], pts[i]]}});
-    }}
-  }}
-  for (var i = 0; i < segs.length; i++) {{
-    var bp = segs[i].pts.map(function(p){{ return new BMap.Point(p[1], p[2]); }});
-    var poly = new BMap.Polyline(bp, {{
-      strokeColor: segs[i].col, strokeWeight: 4, strokeOpacity: 0.85
+// 追加一条已走边到 traveled（同色且无 gap 则并入末条 poly，否则新起一条）。
+// t=1 为整边；t<1 为当前进行中的部分边（仅 seek 时调用）。
+function appendEdgeFrac(k, t) {{
+  if (k < 0 || k >= EDGES.length) return;
+  var i0 = EDGES[k];
+  var p0 = playPos[i0], p1 = playPos[i0 + 1];
+  var col = speedColor((p0[4] + p1[4]) / 2);
+  var gapBefore = (k > 0 && EDGES[k] !== EDGES[k - 1] + 1);
+  var startPt = new BMap.Point(p0[1], p0[2]);
+  var endPt = new BMap.Point(p0[1] + (p1[1] - p0[1]) * t, p0[2] + (p1[2] - p0[2]) * t);
+  var last = traveled.length ? traveled[traveled.length - 1] : null;
+  if (!last || last.color !== col || gapBefore) {{
+    var poly = new BMap.Polyline([startPt, endPt], {{
+      strokeColor: col, strokeWeight: 4, strokeOpacity: 0.85
     }});
     map.addOverlay(poly);
     overlays.push(poly);
+    traveled.push({{ poly: poly, path: [startPt, endPt], color: col }});
+  }} else {{
+    last.path.push(endPt);
+    last.poly.setPath(last.path);
   }}
+}}
+
+// 从起点重建已走折线到 posF（每 gap 一条，末段用插值坐标收尾）
+function rebuildTraveled() {{
+  clearTraveled();
+  var upto = Math.min(posF.ei, EDGES.length);
+  for (var k = 0; k < upto; k++) appendEdgeFrac(k, 1.0);
+  if (posF.ei < EDGES.length && posF.ei >= 0) appendEdgeFrac(posF.ei, posF.t);
 }}
 
 function buildOrderMarkers(orders) {{
@@ -573,17 +638,55 @@ function buildOrderMarkers(orders) {{
   }}
 }}
 
+// ── 位置派生 ────────────────────────────────────────────────────────────
+function markerPoint() {{
+  if (!EDGES.length) return playPos.length ? new BMap.Point(playPos[0][1], playPos[0][2]) : null;
+  if (posF.ei >= EDGES.length) {{ var e = playPos[playPos.length - 1]; return new BMap.Point(e[1], e[2]); }}
+  var i0 = EDGES[posF.ei];
+  var p0 = playPos[i0], p1 = playPos[i0 + 1];
+  var ll = interpolatePoint(p0, p1, posF.t);
+  return new BMap.Point(ll[0], ll[1]);
+}}
+
+function currentHeading() {{
+  if (!EDGES.length || posF.ei >= EDGES.length) return 0;
+  var i0 = EDGES[posF.ei];
+  var p0 = playPos[i0], p1 = playPos[i0 + 1];
+  return headingDeg(p0[2], p0[1], p1[2], p1[1]);
+}}
+
+function indexFromPosF() {{
+  if (!EDGES.length) return 0;
+  var ei = Math.min(posF.ei, EDGES.length - 1);
+  return Math.min(EDGES[ei] + (posF.t >= 0.5 ? 1 : 0), playPos.length - 1);
+}}
+
+// ── 渲染车辆 ────────────────────────────────────────────────────────────
 function renderVehicle(v) {{
+  if (rafId) {{ cancelAnimationFrame(rafId); rafId = null; }}
+  playing = false; lastTs = 0;
   clearOverlays();
   curVid = v.id;
-  curIdx = 0;
-  var pts = showRaw ? v.points_raw : v.points;
-  if (!pts || !pts.length) return;
+  var pts = (showRaw ? v.points_raw : v.points) || [];
   playPos = pts;
-  buildPolyline(pts);
-  buildOrderMarkers(v.orders);
-  playMarker = new BMap.Marker(new BMap.Point(pts[0][1], pts[0][2]));
-  playMarker.setAnimation(BMAP_ANIMATION_BOUNCE);
+  buildOrderMarkers(v.orders || []);
+
+  // 构造可走边集合
+  var segs = segmentAndGapCut(playPos).segments;
+  EDGES = [];
+  for (var s = 0; s < segs.length; s++) {{
+    for (var i = segs[s][0]; i < segs[s][1]; i++) EDGES.push(i);
+  }}
+  posF = {{ ei: 0, t: 0 }};
+  traveled = [];
+
+  document.getElementById('s-pts').textContent = pts.length;
+  document.getElementById('s-ords').textContent = (v.orders || []).length;
+
+  if (!pts.length) {{ resetProgress(); return; }}
+  if (!arrowIcon) arrowIcon = new BMap.Icon(ARROW_ICON_URL, new BMap.Size(28, 28), {{ anchor: new BMap.Size(14, 14) }});
+  playMarker = new BMap.Marker(new BMap.Point(pts[0][1], pts[0][2]), {{ icon: arrowIcon }});
+  playMarker.setRotation(currentHeading());
   map.addOverlay(playMarker);
   overlays.push(playMarker);
 
@@ -591,63 +694,88 @@ function renderVehicle(v) {{
   var view = map.getViewport(bpoints);
   map.centerAndZoom(view.center, view.zoom);
 
-  updateInfo(0);
-  document.getElementById('s-pts').textContent = pts.length;
-  document.getElementById('s-ords').textContent = v.orders.length;
+  updateInfo();
   resetProgress();
+
+  if (window.GSAPPage && window.GSAPPage.trajectoryPanelPulse) {{
+    GSAPPage.trajectoryPanelPulse('#panel .stat');
+  }}
 }}
 
-function updateInfo(idx) {{
+function updateInfo() {{
   if (!playPos.length) return;
+  var idx = indexFromPosF();
   var p = playPos[idx];
   document.getElementById('s-vid').textContent = curVid;
   document.getElementById('s-time').textContent = p[0];
   document.getElementById('s-speed').textContent = p[4];
   document.getElementById('s-status').innerHTML = statusBadge(p[3]);
   document.getElementById('s-prog').textContent = (idx + 1) + ' / ' + playPos.length;
-  document.getElementById('progress').firstElementChild.style.width =
-    ((idx + 1) / playPos.length * 100) + '%';
+  var frac = EDGES.length ? (posF.ei + posF.t) / EDGES.length : 0;
+  if (posF.ei >= EDGES.length && EDGES.length) frac = 1;
+  document.getElementById('progress').firstElementChild.style.width = (frac * 100) + '%';
 }}
 
 function resetProgress() {{
   document.getElementById('progress').firstElementChild.style.width = '0%';
-  document.getElementById('s-prog').textContent = '1 / ' + (playPos.length||0);
+  document.getElementById('s-prog').textContent = '1 / ' + (playPos.length || 0);
 }}
 
-function step() {{
-  if (!playPos.length) return;
-  curIdx += playRate;
-  if (curIdx >= playPos.length) curIdx = playPos.length - 1;
-  var p = playPos[curIdx];
-  playMarker.setPosition(new BMap.Point(p[1], p[2]));
-  updateInfo(curIdx);
-  if (curIdx >= playPos.length - 1) {{ pause(); return; }}
+// ── 推进与动画循环 ──────────────────────────────────────────────────────
+function advance(delta) {{
+  if (!EDGES.length) return;
+  posF.t += delta;
+  while (posF.t >= 1) {{
+    posF.t -= 1;
+    appendEdgeFrac(posF.ei, 1.0);   // 整边已完成，提交到已走折线
+    posF.ei++;
+    if (posF.ei >= EDGES.length) {{ posF.t = 0; break; }}
+  }}
+  if (playMarker) {{
+    playMarker.setPosition(markerPoint());
+    playMarker.setRotation(currentHeading());
+  }}
+  updateInfo();
+}}
+
+function loop(ts) {{
+  if (!playing) return;
+  if (!lastTs) lastTs = ts;
+  var dt = (ts - lastTs) / 1000;
+  lastTs = ts;
+  if (dt > 0) advance(playRate * BASE_PROGRESS_PER_SEC * dt);
+  if (posF.ei >= EDGES.length) {{ pause(); return; }}
+  rafId = requestAnimationFrame(loop);
 }}
 
 function play() {{
-  if (!playPos.length) return;
-  if (curIdx >= playPos.length - 1) curIdx = 0;
-  playing = true;
-  if (timer) clearInterval(timer);
-  timer = setInterval(step, 80);
-}}
-function pause() {{
-  playing = false;
-  if (timer) {{ clearInterval(timer); timer = null; }}
-}}
-function reset() {{
-  pause();
-  curIdx = 0;
-  if (playPos.length) {{
-    var p = playPos[0];
-    playMarker.setPosition(new BMap.Point(p[1], p[2]));
-    updateInfo(0);
+  if (!EDGES.length) return;
+  if (posF.ei >= EDGES.length) {{           // 已到终点 → 从头起
+    clearTraveled();
+    posF = {{ ei: 0, t: 0 }};
+    if (playMarker) {{ playMarker.setPosition(markerPoint()); playMarker.setRotation(currentHeading()); }}
   }}
+  playing = true; lastTs = 0;
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = requestAnimationFrame(loop);
 }}
 
-function loadThen(v) {{
-  document.getElementById('s-pts').textContent = v.points.length;
-  document.getElementById('s-ords').textContent = v.orders.length;
+function pause() {{
+  playing = false;
+  if (rafId) {{ cancelAnimationFrame(rafId); rafId = null; }}
+  lastTs = 0;
+}}
+
+function reset() {{
+  pause();
+  clearTraveled();
+  posF = {{ ei: 0, t: 0 }};
+  if (playPos.length && playMarker) {{
+    playMarker.setPosition(new BMap.Point(playPos[0][1], playPos[0][2]));
+    playMarker.setRotation(currentHeading());
+  }}
+  updateInfo();
+  resetProgress();
 }}
 
 function initMap() {{
@@ -683,15 +811,26 @@ function initMap() {{
     .catch(function(e){{
       console.error(e);
       document.getElementById('panel').innerHTML +=
-        '<p style="color:#ff8a8a;margin-top:12px;">数据加载失败: ' + e + '<br>请通过 --serve HTTP 方式打开（fetch 在 file:// 下不可用）</p>';
+        '<p style="color:#dc2626;margin-top:12px;">数据加载失败: ' + e + '<br>请通过 --serve HTTP 方式打开（fetch 在 file:// 下不可用）</p>';
     }});
 
-  document.getElementById('btnPlay').addEventListener('click', play);
-  document.getElementById('btnPause').addEventListener('click', pause);
-  document.getElementById('btnReset').addEventListener('click', reset);
+  document.getElementById('btnPlay').addEventListener('click', function() {{
+    if (window.GSAPPage && window.GSAPPage.buttonClickFeedback) GSAPPage.buttonClickFeedback(this);
+    play();
+  }});
+  document.getElementById('btnPause').addEventListener('click', function() {{
+    if (window.GSAPPage && window.GSAPPage.buttonClickFeedback) GSAPPage.buttonClickFeedback(this);
+    pause();
+  }});
+  document.getElementById('btnReset').addEventListener('click', function() {{
+    if (window.GSAPPage && window.GSAPPage.buttonClickFeedback) GSAPPage.buttonClickFeedback(this);
+    reset();
+  }});
 
   document.getElementById('rawToggle').addEventListener('change', function(e){{
     showRaw = e.target.checked;
+    if (rafId) {{ cancelAnimationFrame(rafId); rafId = null; }}
+    playing = false; lastTs = 0;
     var sel = document.getElementById('vehicleSel');
     if (TRAJ && sel.value !== '') renderVehicle(TRAJ[parseInt(sel.value)]);
   }});
@@ -703,17 +842,21 @@ function initMap() {{
     spv.textContent = playRate + '×';
   }});
 
-  // 点击进度条跳转
+  // 点击进度条跳转：重建已走折线到 seek 位置
   var prog = document.getElementById('progress');
   prog.addEventListener('click', function(e){{
-    if (!playPos.length) return;
+    if (!EDGES.length) return;
     var rect = prog.getBoundingClientRect();
-    var frac = (e.clientX - rect.left) / rect.width;
-    curIdx = Math.max(0, Math.min(playPos.length - 1, Math.floor(frac * playPos.length)));
-    var p = playPos[curIdx];
-    playMarker.setPosition(new BMap.Point(p[1], p[2]));
-    updateInfo(curIdx);
-    if (playing) {{ clearInterval(timer); timer = setInterval(step, 80); }}
+    var frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    var f = frac * EDGES.length;
+    var ei = Math.floor(f);
+    var t = f - ei;
+    if (ei >= EDGES.length) {{ ei = EDGES.length - 1; t = 1; }}
+    posF = {{ ei: ei, t: t }};
+    rebuildTraveled();
+    if (playMarker) {{ playMarker.setPosition(markerPoint()); playMarker.setRotation(currentHeading()); }}
+    updateInfo();
+    if (playing) {{ if (rafId) cancelAnimationFrame(rafId); lastTs = 0; rafId = requestAnimationFrame(loop); }}
   }});
 }}
 </script>
