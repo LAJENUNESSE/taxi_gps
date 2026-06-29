@@ -151,8 +151,12 @@
 
 <script>
 // ── 加载轨迹数据 ────────────────────────────────────────────────────────
-// 渐进式轨迹回放：线随标记逐段延伸，未走段不绘制；requestAnimationFrame 平滑
-// 插值；标记为方向箭头并按行进方向旋转；gap=1 处断开起新折线、标记瞬移。
+// 渐进式轨迹回放（弧长匀速版）：
+//   - 位置用 posD（已走公里数）+ CUM[] 里程表表达，marker 按真实地理距离匀速推进，
+//     消除"每条 GPS 边等时长"导致的屏上速度跳变。
+//   - 已走折线分两部分：已提交整边（traveled[]，按色/无 gap 合并）+ 一条 frontier
+//     折线随 marker 每帧延伸到当前插值点，从而线尖始终贴着 marker，不再"卡段"。
+//   - gap=1 处：EDGES 跳过断点边，frontier 在断点后起新折线、marker 瞬移，不画跨断直线。
 var TRAJ = null;
 var map = null;
 var curVid = null;
@@ -160,20 +164,26 @@ var playing = false;
 var rafId = null;             // 单一 rAF 句柄
 var lastTs = 0;               // 上一帧时间戳（ms），用于 dt 计算
 var playRate = 15;            // 速度倍率（1×–60×），滑块即时生效
-var overlays = [];            // 当前车辆叠加物（订单标记+回放点）
-var traveled = [];            // 已走折线段 [{poly, path, color}]，每 gap 之间一条
+var overlays = [];            // 当前车辆叠加物（订单标记 + 回放标记 + 折线段）
+var traveled = [];            // 已提交整边折线 [{poly, path, color}]，每 gap 一条
+var frontierPoly = null;      // 当前进行中的部分边（线尖贴 marker），单条独立 Polyline
+var frontierEdge = -1;        // frontierPoly 对应的 EDGES 索引，用于跨边时切换
 var playMarker = null;
-var playPos = [];             // 当前车辆的点数组（raw 或 filtered）
+var playPos = [];             // 当前车辆点数组（raw 或 filtered）
 var showRaw = false;
-var EDGES = [];               // 可走边的起点索引集合（pts[i]→pts[i+1] 且 pts[i+1][5]!==1）
-var posF = { ei: 0, t: 0 };   // 位置：在 EDGES[ei] 这条边上、行进了 t 比例（0..1）
+var EDGES = [];               // 可走边起点索引（pts[i]→pts[i+1] 且 pts[i+1][5]!==1）
+var EDGE_LEN = [];            // 每条可走边的长度（公里）
+var CUM = [0];                // 累计里程表：CUM[k] = 前 k 条边长度和，CUM.length = EDGES.length+1
+var EDGE_TOTAL = 0;           // 全程总公里数
+var posD = 0;                 // 当前已走公里数 [0, EDGE_TOTAL]
+var committedEdge = 0;        // 已提交到 traveled 的整边数（含 gap 切分）
 
-// 1× 时每秒推进 1.2 条 GPS 边；60× ≈ 72 边/秒。可按观感微调。
-var BASE_PROGRESS_PER_SEC = 1.2;
+// 1× 时每秒推进 0.03 km（≈ 30 m/s ≈ 108 km/h 屏上速度基准）；slider 倍率叠加。
+var SPEED_PER_SEC = 0.03;
 
 // 方向箭头图标（base64 内联，rotation=0 时箭头朝北）
 var ARROW_ICON_URL = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScyOCcgaGVpZ2h0PScyOCcgdmlld0JveD0nMCAwIDI4IDI4Jz48cGF0aCBkPSdNMTQgMiBMMjUgMjUgTDE0IDE5IEwzIDI1IFonIGZpbGw9JyMyNTYzZWInIHN0cm9rZT0nI2ZmZmZmZicgc3Ryb2tlLXdpZHRoPScxLjUnIHN0cm9rZS1saW5lam9pbj0ncm91bmQnLz48Y2lyY2xlIGN4PScxNCcgY3k9JzE0JyByPScyJyBmaWxsPScjZmZmZmZmJy8+PC9zdmc+';
-var arrowIcon = null;          // 延迟创建（等 BMap 加载）
+var arrowIcon = null;
 
 var DATA_FILE = 'trajectory_sample.json';
 
@@ -188,8 +198,18 @@ function headingDeg(lat1, lon1, lat2, lon2) {
   return h;
 }
 
+// haversine 距离（公里）。
+function haversineKm(lat1, lon1, lat2, lon2) {
+  var R = 6371;
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLon = (lon2 - lon1) * Math.PI / 180;
+  var a = Math.pow(Math.sin(dLat / 2), 2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.pow(Math.sin(dLon / 2), 2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
 // 按 gap=1 将点序列切成连续段：返回 { segments: [[a,b],...], cuts: [gapIdx,...] }。
-// 单点 → segments:[[0,0]]；尾部 gap 后的单点段被丢弃。
 function segmentAndGapCut(pts) {
   var segments = [], cuts = [];
   if (!pts || !pts.length) return { segments: segments, cuts: cuts };
@@ -201,7 +221,6 @@ function segmentAndGapCut(pts) {
       start = i;
     }
   }
-  // 末段：丢弃纯单点的尾段（start 与末点重合说明无出边）
   if (start < pts.length - 1) segments.push([start, pts.length - 1]);
   else if (pts.length === 1) segments.push([0, 0]);
   return { segments: segments, cuts: cuts };
@@ -230,18 +249,38 @@ function speedColor(s) {
   return '#' + [r,g,b].map(function(c){ return ('0'+c.toString(16)).slice(-2); }).join('');
 }
 
+// 第 k 条可走边的颜色（取两端点速度均值）。
+function edgeColor(k) {
+  var i0 = EDGES[k];
+  return speedColor((playPos[i0][4] + playPos[i0 + 1][4]) / 2);
+}
+
 // ── 叠加物管理 ──────────────────────────────────────────────────────────
+function removeFrontier() {
+  if (frontierPoly) {
+    map.removeOverlay(frontierPoly);
+    var i = overlays.indexOf(frontierPoly);
+    if (i >= 0) overlays.splice(i, 1);
+    frontierPoly = null;
+    frontierEdge = -1;
+  }
+}
+
 function clearOverlays() {
   for (var i = 0; i < overlays.length; i++) map.removeOverlay(overlays[i]);
   overlays = [];
   traveled = [];
+  frontierPoly = null;
+  frontierEdge = -1;
   playMarker = null;
+  posD = 0;
+  committedEdge = 0;
 }
 
-// 仅清空已走折线（保留订单标记与回放标记）
 function clearTraveled() {
   for (var i = 0; i < traveled.length; i++) map.removeOverlay(traveled[i].poly);
   traveled = [];
+  removeFrontier();
 }
 
 function statusBadge(st) {
@@ -250,12 +289,12 @@ function statusBadge(st) {
 }
 
 // 追加一条已走边到 traveled（同色且无 gap 则并入末条 poly，否则新起一条）。
-// t=1 为整边；t<1 为当前进行中的部分边（仅 seek 时调用）。
+// t=1 整边；t<1 当前进行中（仅 seek 重建时用）。
 function appendEdgeFrac(k, t) {
   if (k < 0 || k >= EDGES.length) return;
   var i0 = EDGES[k];
   var p0 = playPos[i0], p1 = playPos[i0 + 1];
-  var col = speedColor((p0[4] + p1[4]) / 2);
+  var col = edgeColor(k);
   var gapBefore = (k > 0 && EDGES[k] !== EDGES[k - 1] + 1);
   var startPt = new BMap.Point(p0[1], p0[2]);
   var endPt = new BMap.Point(p0[1] + (p1[1] - p0[1]) * t, p0[2] + (p1[2] - p0[2]) * t);
@@ -273,12 +312,42 @@ function appendEdgeFrac(k, t) {
   }
 }
 
-// 从起点重建已走折线到 posF（每 gap 一条，末段用插值坐标收尾）
+// 把 frontier（进行中边）更新或重建到当前 posD 位置，并同步 marker 朝向。
+function setFrontier() {
+  if (!EDGES.length || committedEdge >= EDGES.length) { removeFrontier(); return; }
+  var k = committedEdge;
+  var i0 = EDGES[k];
+  var p0 = playPos[i0], p1 = playPos[i0 + 1];
+  var t = EDGE_LEN[k] > 1e-9 ? (posD - CUM[k]) / EDGE_LEN[k] : 0;
+  if (t < 0) t = 0; if (t > 1) t = 1;
+  var startPt = new BMap.Point(p0[1], p0[2]);
+  var endPt = new BMap.Point(p0[1] + (p1[1] - p0[1]) * t, p0[2] + (p1[2] - p0[2]) * t);
+  if (!frontierPoly || frontierEdge !== k) {
+    removeFrontier();
+    frontierPoly = new BMap.Polyline([startPt, endPt], {
+      strokeColor: edgeColor(k), strokeWeight: 4, strokeOpacity: 0.85
+    });
+    map.addOverlay(frontierPoly);
+    overlays.push(frontierPoly);
+    frontierEdge = k;
+  } else {
+    frontierPoly.setPath([startPt, endPt]);
+  }
+  if (playMarker) {
+    playMarker.setPosition(endPt);
+    playMarker.setRotation(headingDeg(p0[2], p0[1], p1[2], p1[1]));
+  }
+}
+
+// 在 posD 给定时，先把所有已完整走过的边提交到 traveled，再 setFrontier 处理进行中边。
 function rebuildTraveled() {
   clearTraveled();
-  var upto = Math.min(posF.ei, EDGES.length);
-  for (var k = 0; k < upto; k++) appendEdgeFrac(k, 1.0);
-  if (posF.ei < EDGES.length && posF.ei >= 0) appendEdgeFrac(posF.ei, posF.t);
+  committedEdge = 0;
+  while (committedEdge < EDGES.length && posD >= CUM[committedEdge + 1] - 1e-9) {
+    appendEdgeFrac(committedEdge, 1.0);
+    committedEdge++;
+  }
+  setFrontier();
 }
 
 function buildOrderMarkers(orders) {
@@ -304,26 +373,13 @@ function buildOrderMarkers(orders) {
 }
 
 // ── 位置派生 ────────────────────────────────────────────────────────────
-function markerPoint() {
-  if (!EDGES.length) return playPos.length ? new BMap.Point(playPos[0][1], playPos[0][2]) : null;
-  if (posF.ei >= EDGES.length) { var e = playPos[playPos.length - 1]; return new BMap.Point(e[1], e[2]); }
-  var i0 = EDGES[posF.ei];
-  var p0 = playPos[i0], p1 = playPos[i0 + 1];
-  var ll = interpolatePoint(p0, p1, posF.t);
-  return new BMap.Point(ll[0], ll[1]);
-}
-
-function currentHeading() {
-  if (!EDGES.length || posF.ei >= EDGES.length) return 0;
-  var i0 = EDGES[posF.ei];
-  var p0 = playPos[i0], p1 = playPos[i0 + 1];
-  return headingDeg(p0[2], p0[1], p1[2], p1[1]);
-}
-
-function indexFromPosF() {
-  if (!EDGES.length) return 0;
-  var ei = Math.min(posF.ei, EDGES.length - 1);
-  return Math.min(EDGES[ei] + (posF.t >= 0.5 ? 1 : 0), playPos.length - 1);
+function currentIndex() {
+  if (!EDGES.length) return playPos.length ? 0 : 0;
+  if (committedEdge >= EDGES.length) return playPos.length - 1;
+  var k = committedEdge;
+  var t = EDGE_LEN[k] > 1e-9 ? (posD - CUM[k]) / EDGE_LEN[k] : 0;
+  var idx = EDGES[k] + (t >= 0.5 ? 1 : 0);
+  return Math.min(idx, playPos.length - 1);
 }
 
 // ── 渲染车辆 ────────────────────────────────────────────────────────────
@@ -336,14 +392,28 @@ function renderVehicle(v) {
   playPos = pts;
   buildOrderMarkers(v.orders || []);
 
-  // 构造可走边集合
+  // 构造可走边集合 + 里程表
   var segs = segmentAndGapCut(playPos).segments;
   EDGES = [];
   for (var s = 0; s < segs.length; s++) {
     for (var i = segs[s][0]; i < segs[s][1]; i++) EDGES.push(i);
   }
-  posF = { ei: 0, t: 0 };
+  EDGE_LEN = [];
+  CUM = [0];
+  EDGE_TOTAL = 0;
+  for (var k = 0; k < EDGES.length; k++) {
+    var i0 = EDGES[k];
+    var L = haversineKm(playPos[i0][2], playPos[i0][1], playPos[i0 + 1][2], playPos[i0 + 1][1]);
+    if (L < 1e-9) L = 1e-9;
+    EDGE_LEN.push(L);
+    EDGE_TOTAL += L;
+    CUM.push(EDGE_TOTAL);
+  }
+  posD = 0;
+  committedEdge = 0;
   traveled = [];
+  frontierPoly = null;
+  frontierEdge = -1;
 
   document.getElementById('s-pts').textContent = pts.length;
   document.getElementById('s-ords').textContent = (v.orders || []).length;
@@ -351,9 +421,9 @@ function renderVehicle(v) {
   if (!pts.length) { resetProgress(); return; }
   if (!arrowIcon) arrowIcon = new BMap.Icon(ARROW_ICON_URL, new BMap.Size(28, 28), { anchor: new BMap.Size(14, 14) });
   playMarker = new BMap.Marker(new BMap.Point(pts[0][1], pts[0][2]), { icon: arrowIcon });
-  playMarker.setRotation(currentHeading());
   map.addOverlay(playMarker);
   overlays.push(playMarker);
+  setFrontier();   // 将 marker 移到起点并设首朝向
 
   var bpoints = pts.map(function(p){ return new BMap.Point(p[1], p[2]); });
   var view = map.getViewport(bpoints);
@@ -369,15 +439,15 @@ function renderVehicle(v) {
 
 function updateInfo() {
   if (!playPos.length) return;
-  var idx = indexFromPosF();
+  var idx = currentIndex();
   var p = playPos[idx];
   document.getElementById('s-vid').textContent = curVid;
   document.getElementById('s-time').textContent = p[0];
   document.getElementById('s-speed').textContent = p[4];
   document.getElementById('s-status').innerHTML = statusBadge(p[3]);
   document.getElementById('s-prog').textContent = (idx + 1) + ' / ' + playPos.length;
-  var frac = EDGES.length ? (posF.ei + posF.t) / EDGES.length : 0;
-  if (posF.ei >= EDGES.length && EDGES.length) frac = 1;
+  var frac = EDGE_TOTAL > 1e-9 ? posD / EDGE_TOTAL : (EDGES.length ? committedEdge / EDGES.length : 0);
+  if (committedEdge >= EDGES.length && EDGES.length) frac = 1;
   document.getElementById('progress').firstElementChild.style.width = (frac * 100) + '%';
 }
 
@@ -387,18 +457,24 @@ function resetProgress() {
 }
 
 // ── 推进与动画循环 ──────────────────────────────────────────────────────
-function advance(delta) {
+function advance(deltaKm) {
   if (!EDGES.length) return;
-  posF.t += delta;
-  while (posF.t >= 1) {
-    posF.t -= 1;
-    appendEdgeFrac(posF.ei, 1.0);   // 整边已完成，提交到已走折线
-    posF.ei++;
-    if (posF.ei >= EDGES.length) { posF.t = 0; break; }
+  if (deltaKm < 0) deltaKm = 0;
+  var newD = Math.min(posD + deltaKm, EDGE_TOTAL);
+  // 跨越整边边界 → 提交到 traveled
+  while (committedEdge < EDGES.length && newD >= CUM[committedEdge + 1] - 1e-9) {
+    appendEdgeFrac(committedEdge, 1.0);
+    committedEdge++;
   }
-  if (playMarker) {
-    playMarker.setPosition(markerPoint());
-    playMarker.setRotation(currentHeading());
+  posD = newD;
+  if (committedEdge < EDGES.length) {
+    setFrontier();   // frontier 折线随 marker 实时延伸
+  } else {
+    removeFrontier();
+    if (playMarker && playPos.length) {
+      var e = playPos[playPos.length - 1];
+      playMarker.setPosition(new BMap.Point(e[1], e[2]));
+    }
   }
   updateInfo();
 }
@@ -408,17 +484,18 @@ function loop(ts) {
   if (!lastTs) lastTs = ts;
   var dt = (ts - lastTs) / 1000;
   lastTs = ts;
-  if (dt > 0) advance(playRate * BASE_PROGRESS_PER_SEC * dt);
-  if (posF.ei >= EDGES.length) { pause(); return; }
+  if (dt > 0 && dt < 1) advance(playRate * SPEED_PER_SEC * dt);   // dt<1 防止后台标签页回来时大跳
+  if (committedEdge >= EDGES.length) { pause(); return; }
   rafId = requestAnimationFrame(loop);
 }
 
 function play() {
   if (!EDGES.length) return;
-  if (posF.ei >= EDGES.length) {           // 已到终点 → 从头起
+  if (committedEdge >= EDGES.length) {           // 已到终点 → 从头起
     clearTraveled();
-    posF = { ei: 0, t: 0 };
-    if (playMarker) { playMarker.setPosition(markerPoint()); playMarker.setRotation(currentHeading()); }
+    posD = 0;
+    committedEdge = 0;
+    setFrontier();
   }
   playing = true; lastTs = 0;
   if (rafId) cancelAnimationFrame(rafId);
@@ -434,11 +511,9 @@ function pause() {
 function reset() {
   pause();
   clearTraveled();
-  posF = { ei: 0, t: 0 };
-  if (playPos.length && playMarker) {
-    playMarker.setPosition(new BMap.Point(playPos[0][1], playPos[0][2]));
-    playMarker.setRotation(currentHeading());
-  }
+  posD = 0;
+  committedEdge = 0;
+  setFrontier();
   updateInfo();
   resetProgress();
 }
@@ -507,19 +582,14 @@ function initMap() {
     spv.textContent = playRate + '×';
   });
 
-  // 点击进度条跳转：重建已走折线到 seek 位置
+  // 点击进度条跳转：按里程比例 seek，重建已走折线到该位置
   var prog = document.getElementById('progress');
   prog.addEventListener('click', function(e){
     if (!EDGES.length) return;
     var rect = prog.getBoundingClientRect();
     var frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    var f = frac * EDGES.length;
-    var ei = Math.floor(f);
-    var t = f - ei;
-    if (ei >= EDGES.length) { ei = EDGES.length - 1; t = 1; }
-    posF = { ei: ei, t: t };
+    posD = frac * EDGE_TOTAL;
     rebuildTraveled();
-    if (playMarker) { playMarker.setPosition(markerPoint()); playMarker.setRotation(currentHeading()); }
     updateInfo();
     if (playing) { if (rafId) cancelAnimationFrame(rafId); lastTs = 0; rafId = requestAnimationFrame(loop); }
   });
