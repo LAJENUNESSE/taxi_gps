@@ -88,7 +88,7 @@ Your next move: 跑完高精度 Momus 审查后用 `$start-work` 启动执行。
 > Implementation + Test = ONE todo. Never separate.
 <!-- APPEND TASK BATCHES BELOW THIS LINE WITH edit/apply_patch - never rewrite the headers above. -->
 
-- [ ] 1. git 安全检查点（执行前置）
+- [x] 1. git 安全检查点（执行前置）
   What to do:
   1. **先把 `.omo/evidence/` 与 `.omo/boulder.json` 加入 `.gitignore`**（当前 `.gitignore:31` 只忽略 `.omo/run-continuation/`）：在文件末追加两行 `.omo/evidence/` 与 `.omo/boulder.json`。这样 checkpoint commit 不会夹带会话证据 / 状态文件。
   2. 在项目根跑 `git status -s && git log --oneline -5`，确认无 .venv / data / output/figures 之外的大文件误入；若有意外 untracked 大文件（如 TaxiData.csv、vehicle_data.json、frontend/data/trajectory_sample.json 16MB），**不要 add 它们**（data/ 与 frontend/data 的策略下条）。
