@@ -567,6 +567,13 @@ function interpolatePoint(p1, p2, t) {{
   return [p1[1] + (p2[1] - p1[1]) * t, p1[2] + (p2[2] - p1[2]) * t];
 }}
 
+// 显示用的时间：剥掉 pandas 占位日 "1900-01-01 " 前缀，只留 HH:MM:SS。
+// 非该格式（防御）则原样返回，避免破坏其它可能的日期格式。
+function shortTime(t) {{
+  if (typeof t === 'string' && t.indexOf('1900-01-01 ') === 0) return t.slice(11);
+  return t;
+}}
+
 // ── 颜色映射（0=蓝, 60=黄, 120=红） ────────────────────────────────────
 function speedColor(s) {{
   s = Math.max(0, Math.min(120, s));
@@ -718,7 +725,7 @@ function buildOrderMarkers(orders) {{
     var col = isPick ? '#1aa240' : '#d8232f';
     var marker = new BMap.Marker(pt);
     var label = new BMap.Label(
-      (isPick ? '上客' : '下客') + '<br>' + o.time,
+      (isPick ? '上客' : '下客') + '<br>' + shortTime(o.time),
       {{offset: new BMap.Size(14, -4)}}
     );
     label.setStyle({{
@@ -805,7 +812,7 @@ function updateInfo() {{
   var idx = currentIndex();
   var p = playPos[idx];
   document.getElementById('s-vid').textContent = curVid;
-  document.getElementById('s-time').textContent = p[0];
+  document.getElementById('s-time').textContent = shortTime(p[0]);
   document.getElementById('s-speed').textContent = p[4];
   document.getElementById('s-status').innerHTML = statusBadge(p[3]);
   document.getElementById('s-prog').textContent = (idx + 1) + ' / ' + playPos.length;
