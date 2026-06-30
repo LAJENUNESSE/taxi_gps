@@ -14,18 +14,24 @@
 import argparse
 import json
 import os
+import shutil
 import sys
+import tempfile
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+from PIL import Image
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
 from src.config import BAIDU_MAP_API_KEY, DATA_DIR, FIGURES_DIR, SHENZHEN_BOUNDS
-from src.utils import assert_input_exists
+from src.utils import assert_input_exists, setup_matplotlib_cjk
+
+setup_matplotlib_cjk()
 
 
 CENTER_LAT = 22.55
@@ -64,7 +70,7 @@ def _load_pickups() -> pd.DataFrame:
     df = df[mask].copy()
     print(f'  越界/异常剔除: {before - len(df):,}')
     print(f'  有效上客点: {len(df):,}')
-    return df[['开始经度', '开始纬度', 'hour']]
+    return df[['开始经度', '开始纬度', 'hour', '开始时间']]
 
 
 def _aggregate_hour_grid(df: pd.DataFrame) -> dict:
@@ -98,6 +104,189 @@ def _aggregate_hour_grid(df: pd.DataFrame) -> dict:
     print(f'  网格单元总数: {total_cells:,}')
     print(f'  单格最大计数: {global_max:,}')
     return {'hours': hourly, 'max': global_max, 'total': total_cells}
+
+def _aggregate_time_slices(df: pd.DataFrame, agg_minutes: int) -> dict:
+    """按指定分钟粒度聚合上客点，返回时间片列表。
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        含 '开始经度'/'开始纬度'/'开始时间' 的上客点数据。
+    agg_minutes : int
+        聚合粒度（分钟），如 1/15/30/60。
+
+    Returns
+    -------
+    dict with keys:
+        slices  — [{slot: str, start: str, end: str, points: [[lng,lat,weight],...]}, ...]
+        max_weight  — int, 全局最大权重（用于归一化）
+        total_slices  — int
+        agg_minutes  — int
+    """
+    print(f'  按 {agg_minutes} 分钟粒度聚合上客点 ...')
+
+    df = df.copy()
+    minutes_of_day = df['开始时间'].dt.hour * 60 + df['开始时间'].dt.minute
+    df['时间窗'] = (minutes_of_day // agg_minutes).astype(int)
+
+    df['g_lon'] = (df['开始经度'] / HEAT_GRID).round().astype('int32') * HEAT_GRID
+    df['g_lat'] = (df['开始纬度'] / HEAT_GRID).round().astype('int32') * HEAT_GRID
+
+    agg = (
+        df.groupby(['时间窗', 'g_lon', 'g_lat'])
+        .size()
+        .reset_index(name='weight')
+        .sort_values('weight', ascending=False)
+    )
+
+    num_slots = 1440 // agg_minutes
+    slices = []
+    global_max = 0
+    total_cells = 0
+
+    for slot_idx in range(num_slots):
+        sub = agg[agg['时间窗'] == slot_idx].head(MAX_POINTS_PER_HOUR)
+        points = [
+            [round(float(r['g_lon']), 4), round(float(r['g_lat']), 4), int(r['weight'])]
+            for _, r in sub.iterrows()
+        ]
+        start_min = slot_idx * agg_minutes
+        end_min = start_min + agg_minutes
+        slot = {
+            'slot': slot_idx,
+            'start': f'{start_min // 60:02d}:{start_min % 60:02d}',
+            'end': f'{end_min // 60:02d}:{end_min % 60:02d}',
+            'points': points,
+        }
+        slices.append(slot)
+        if points:
+            global_max = max(global_max, max(p[2] for p in points))
+        total_cells += len(points)
+
+    print(f'  时间片数: {num_slots}')
+    print(f'  网格单元总数: {total_cells:,}')
+    print(f'  单格最大权重: {global_max:,}')
+
+    return {
+        'slices': slices,
+        'max_weight': global_max,
+        'total_slices': num_slots,
+        'agg_minutes': agg_minutes,
+    }
+
+
+def _export_time_slices_json(payload: dict, suffix: str) -> str:
+    """导出时间片数据为 JSON 文件。"""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    filename = f'time_slices_{suffix}.json'
+    path = os.path.join(DATA_DIR, filename)
+
+    export_data = {
+        'agg_minutes': payload['agg_minutes'],
+        'total_slices': payload['total_slices'],
+        'max_weight': payload['max_weight'],
+        'grid_size': HEAT_GRID,
+        'data_source': 'orders.csv 上客点',
+        'slices': [
+            {
+                'slot': s['slot'],
+                'start': s['start'],
+                'end': s['end'],
+                'points': s['points'],
+            }
+            for s in payload['slices']
+        ],
+    }
+
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(export_data, f, ensure_ascii=False, indent=2)
+    print(f'  保存时间片JSON: {path}')
+    size_kb = os.path.getsize(path) / 1024
+    print(f'  文件大小: {size_kb:.1f} KB')
+    return path
+
+
+def _generate_time_slice_gif(payload: dict, suffix: str) -> str:
+    """从时间片数据生成动态热力图 GIF。
+
+    每分钟级 (1440片) 降采样为每15分钟一帧，15/30/60分钟级逐片渲染。
+    """
+    import matplotlib.pyplot as plt
+
+    slices = payload['slices']
+    num_slots = len(slices)
+    agg_minutes = payload['agg_minutes']
+    global_max = payload['max_weight']
+
+    if global_max == 0:
+        global_max = 1
+
+    os.makedirs(FIGURES_DIR, exist_ok=True)
+    gif_path = os.path.join(FIGURES_DIR, f'dynamic_heatmap_{suffix}.gif')
+    tmp_dir = tempfile.mkdtemp(prefix=f'heatmap_{suffix}_')
+    frames = []
+
+    # 分钟级热力图时间片过多，降采样
+    if agg_minutes <= 1:
+        step = 15
+    elif agg_minutes == 15:
+        step = 1
+    elif agg_minutes == 30:
+        step = 1
+    else:
+        step = 1
+
+    for idx in range(0, num_slots, step):
+        s = slices[idx]
+        points = s['points']
+        if not points:
+            continue
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        lons = [p[0] for p in points]
+        lats = [p[1] for p in points]
+        weights = np.array([p[2] for p in points])
+
+        sizes = np.clip(weights / global_max * 60, 1, 80)
+        colors = np.clip(weights / global_max, 0.05, 1.0)
+
+        ax.scatter(lons, lats, s=sizes, c=colors, cmap='YlOrRd',
+                   alpha=0.6, edgecolors='none')
+        ax.set_xlim(113.5, 114.8)
+        ax.set_ylim(22.3, 22.9)
+        ax.set_xlabel('经度')
+        ax.set_ylabel('纬度')
+        ax.set_title(f'上客点热力 {s["start"]}-{s["end"]}  ({agg_minutes}min聚合)',
+                     fontsize=14)
+        ax.grid(alpha=0.3)
+
+        tmp_path = os.path.join(tmp_dir, f'frame_{idx:04d}.png')
+        fig.savefig(tmp_path, dpi=80, bbox_inches='tight')
+        plt.close(fig)
+        img = Image.open(tmp_path)
+        img.load()
+        frames.append(img)
+
+    if not frames:
+        print('  警告: 无有效帧，未生成GIF')
+        shutil.rmtree(tmp_dir)
+        return ''
+
+    frames[0].save(
+        gif_path,
+        save_all=True,
+        append_images=frames[1:],
+        duration=200 if agg_minutes <= 1 else 300,
+        loop=0,
+    )
+
+    for img in frames:
+        img.close()
+    shutil.rmtree(tmp_dir)
+
+    size_kb = os.path.getsize(gif_path) / 1024
+    print(f'  保存动态热力图GIF: {gif_path} ({size_kb:.1f} KB, {len(frames)}帧)')
+    return gif_path
 
 
 def _build_hour_json(payload: dict) -> str:
@@ -383,11 +572,15 @@ def main() -> None:
                         help='生成后启动 HTTP 服务器')
     parser.add_argument('--port', type=int, default=8080,
                         help='HTTP 服务器端口（默认 8080）')
+    parser.add_argument('--agg', type=str, default=None,
+                        choices=['minute', '15min', '30min', '60min', 'all'],
+                        help='导出多粒度动态热力图 (时间片JSON + GIF)')
     args = parser.parse_args()
 
     df = _load_pickups()
-    payload = _aggregate_hour_grid(df)
 
+    # 默认: 生成交互式小时级热力图 HTML
+    payload = _aggregate_hour_grid(df)
     html = _generate_html(payload)
 
     os.makedirs(FIGURES_DIR, exist_ok=True)
@@ -396,6 +589,29 @@ def main() -> None:
         f.write(html)
     print(f'\n已保存: {out_path}')
 
+    # 多粒度动态热力图导出
+    if args.agg:
+        agg_map = {
+            'minute': (1, 'minute'),
+            '15min': (15, '15min'),
+            '30min': (30, '30min'),
+            '60min': (60, '60min'),
+        }
+
+        targets = list(agg_map.items()) if args.agg == 'all' else [(args.agg, agg_map[args.agg])]
+
+        for agg_key, (agg_min, suffix) in targets:
+            print(f'\n--- 动态热力图: {suffix} ({agg_min}min聚合) ---')
+            print(f'  数据来源: orders.csv 上客点')
+            print(f'  聚合粒度: {agg_min} 分钟')
+            print(f'  网格大小: {HEAT_GRID}° (~{HEAT_GRID * 111000:.0f}m)')
+
+            ts_payload = _aggregate_time_slices(df, agg_min)
+            json_path = _export_time_slices_json(ts_payload, suffix)
+            gif_path = _generate_time_slice_gif(ts_payload, suffix)
+            print(f'  导出文件: {json_path}')
+            print(f'  导出文件: {gif_path}')
+
     if args.serve:
         _serve_html(out_path, port=args.port)
     else:
@@ -403,6 +619,12 @@ def main() -> None:
         print('提示: 不能直接双击打开，请使用:')
         print(f'   python src/09_交互热力图.py --serve')
         print(f'   然后打开 http://localhost:8080/interactive_heatmap.html')
+        if args.agg:
+            print()
+            print('  导出的时间片JSON可用于动态热力图:')
+            for suffix in (agg_map.keys() if args.agg == 'all' else [args.agg]):
+                print(f'    data/time_slices_{agg_key}.json')
+            print('  导出的GIF位于 output/figures/ 目录')
 
 
 if __name__ == '__main__':

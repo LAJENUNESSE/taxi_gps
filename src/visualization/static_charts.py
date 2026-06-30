@@ -1,15 +1,18 @@
 
-"""出租车GPS数据可视化 — 8个图表
+"""出租车GPS数据可视化 — 11个图表
 
 图表:
   1. 出行小时数量统计      → output/figures/hourly_orders.png
   2. 各时段订单时长分布    → output/figures/order_duration_boxplot.png
   3. 上客点热力分布        → output/figures/static_heatmap.png
-  4. 载客出租车数量变化    → output/figures/occupied_taxis.png
-  5. 出行距离划分          → output/figures/trip_distance.png
-  6. 各时段道路平均速度    → output/figures/avg_speed.png
-  7. 15分钟热力切片        → output/figures/heatmap_slices.png
-  8. 动态热力图            → output/figures/dynamic_heatmap.gif
+  4. 车辆位置热力分布      → output/figures/vehicle_position_heatmap.png
+  5. 载客出租车数量变化    → output/figures/occupied_taxis.png
+  6. 载客率变化            → output/figures/occupancy_rate.png
+  7. 出行距离划分          → output/figures/trip_distance.png
+  8. 各时段道路平均速度    → output/figures/avg_speed.png
+  9. 15分钟热力切片        → output/figures/heatmap_slices.png
+  10. 动态热力图           → output/figures/dynamic_heatmap.gif
+  11. 车辆里程统计         → output/figures/vehicle_mileage.png
 """
 
 import os
@@ -263,6 +266,112 @@ def plot_dynamic_heatmap_gif() -> str:
     return gif_path
 
 
+def plot_vehicle_position_heatmap() -> str:
+    path = os.path.join(DATA_DIR, 'clean.csv')
+    assert_input_exists(path)
+
+    print('  采样车辆位置点 ...')
+    sample_step = 500
+    sampled_lons, sampled_lats = [], []
+    chunk_iter = pd.read_csv(path, chunksize=200_000, usecols=['lati', 'long', 'status'])
+    row_idx = 0
+    for chunk in chunk_iter:
+        occupied = chunk[chunk['status'] == 1]
+        for _, row in occupied.iterrows():
+            if row_idx % sample_step == 0:
+                sampled_lons.append(row['long'])
+                sampled_lats.append(row['lati'])
+            row_idx += 1
+            if len(sampled_lons) >= 80000:
+                break
+        if len(sampled_lons) >= 80000:
+            break
+
+    print(f'  采样点数: {len(sampled_lons):,}')
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.scatter(sampled_lons, sampled_lats, s=1, alpha=0.3, c='steelblue')
+    ax.set_xlim(113.5, 114.8)
+    ax.set_ylim(22.3, 22.9)
+    ax.set_xlabel('经度')
+    ax.set_ylabel('纬度')
+    ax.set_title('车辆位置热力分布（载客状态）')
+    ax.grid(alpha=0.3)
+
+    return _save_fig(fig, 'vehicle_position_heatmap.png')
+
+
+def plot_occupancy_rate() -> str:
+    path = os.path.join(DATA_DIR, 'occupancy_rate.csv')
+    assert_input_exists(path)
+    df = pd.read_csv(path)
+
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+
+    ax1.bar(df['小时'], df['载客率'], color='steelblue', alpha=0.5, label='载客率')
+    ax1.plot(df['小时'], df['载客率'], color='crimson', marker='o', linewidth=2, label='趋势')
+    ax1.set_xlabel('小时')
+    ax1.set_ylabel('载客率', color='steelblue')
+    ax1.set_ylim(0, 1)
+    ax1.set_xticks(range(0, 24))
+    ax1.tick_params(axis='y', labelcolor='steelblue')
+    ax1.grid(axis='y', alpha=0.3)
+
+    ax2 = ax1.twinx()
+    ax2.plot(df['小时'], df['载客GPS点数'] / 1000, color='darkgreen',
+             marker='s', linewidth=1.5, label='载客GPS点数(千)')
+    ax2.set_ylabel('载客GPS点数(千)', color='darkgreen')
+    ax2.tick_params(axis='y', labelcolor='darkgreen')
+
+    ax1.set_title('出租车载客率变化（小时级）')
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+
+    return _save_fig(fig, 'occupancy_rate.png')
+
+
+def plot_vehicle_mileage() -> str:
+    path = os.path.join(DATA_DIR, 'vehicle_mileage.csv')
+    assert_input_exists(path)
+    df = pd.read_csv(path)
+
+    total = df['总里程_km'].sum()
+    occupied = df['载客里程_km'].sum()
+    empty = df['空载里程_km'].sum()
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+    categories = ['总里程', '载客里程', '空载里程']
+    values = [total, occupied, empty]
+    colors = ['#4682B4', '#4CAF50', '#FF9800']
+    bars = ax1.bar(categories, values, color=colors, alpha=0.8, width=0.5)
+    for bar, val in zip(bars, values):
+        ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + total * 0.01,
+                 f'{val:,.0f} km\n({val/total*100:.1f}%)',
+                 ha='center', va='bottom', fontsize=10)
+    ax1.set_ylabel('里程 (km)')
+    ax1.set_title('车辆全天里程统计')
+
+    mean_val = df['总里程_km'].mean()
+    median_val = df['总里程_km'].median()
+    ax2.hist(df['总里程_km'].clip(0, 800), bins=40, color='steelblue',
+             alpha=0.7, edgecolor='white')
+    ax2.axvline(mean_val, color='crimson', linestyle='--',
+                linewidth=1.5, label=f'均值={mean_val:.0f} km')
+    ax2.axvline(median_val, color='darkgreen', linestyle='--',
+                linewidth=1.5, label=f'中位数={median_val:.0f} km')
+    ax2.set_xlabel('单车总里程 (km)')
+    ax2.set_ylabel('车辆数')
+    ax2.set_title('单车总里程分布')
+    ax2.legend()
+
+    fig.suptitle(f'车辆里程统计 (n={len(df):,})', fontsize=14)
+    plt.tight_layout()
+
+    return _save_fig(fig, 'vehicle_mileage.png')
+
+
 def main() -> None:
     print('=' * 60)
     print('出租车GPS数据可视化')
@@ -272,11 +381,14 @@ def main() -> None:
         ('出行小时数量统计',    plot_hourly_orders),
         ('各时段订单时长分布',  plot_order_duration_boxplot),
         ('上客点热力分布',      plot_static_heatmap),
+        ('车辆位置热力分布',    plot_vehicle_position_heatmap),
         ('载客出租车数量变化',  plot_occupied_taxis),
+        ('载客率变化',          plot_occupancy_rate),
         ('出行距离划分',        plot_trip_distance),
         ('各时段道路平均速度',  plot_avg_speed),
         ('15分钟热力切片',      plot_heatmap_slices),
         ('动态热力图',          plot_dynamic_heatmap_gif),
+        ('车辆里程统计',        plot_vehicle_mileage),
     ]
 
     results = []

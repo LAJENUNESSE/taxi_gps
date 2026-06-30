@@ -1,5 +1,5 @@
 
-"""出租车GPS数据分析 — 6个子分析产出6个CSV结果文件
+"""出租车GPS数据分析 — 8个子分析产出8个CSV结果文件
 
 子分析:
   4.1 DBSCAN上客点聚类 → data/clustered_hotspots.csv
@@ -8,6 +8,8 @@
   4.4 出行距离划分      → data/JNLuC.csv
   4.5 订单平均速度      → data/avg_speed_by_hour.csv
   4.6 载客出租车数量    → data/occupied_taxis.csv
+  4.7 载客率统计        → data/occupancy_rate.csv
+  4.8 车辆里程统计      → data/vehicle_mileage.csv
 """
 
 import os
@@ -233,6 +235,127 @@ def main() -> None:
     print(f'  保存: {occupied_path} ({len(df_occupied)} 行)')
 
 
+    # --- 4.7 载客率统计 ---
+    # 数据来源: clean.csv 按时段统计载客GPS点数 vs 总GPS点数
+    # 统计口径: 载客率 = 该小时 status==1 的点数 / 该小时全部点数
+    print()
+    print('--- 4.7 载客率统计 ---')
+
+    occ_count: dict[int, int] = defaultdict(int)
+    total_count: dict[int, int] = defaultdict(int)
+
+    chunk_iter2 = pd.read_csv(
+        clean_path,
+        chunksize=500_000,
+        usecols=['time', 'status'],
+    )
+    for chunk in chunk_iter2:
+        chunk['time'] = pd.to_datetime(chunk['time'])
+        chunk['hour'] = chunk['time'].dt.hour
+        for h in range(24):
+            mask_h = chunk['hour'] == h
+            total_count[h] += int(mask_h.sum())
+            occ_count[h] += int(((chunk['hour'] == h) & (chunk['status'] == 1)).sum())
+
+    df_occ_rate = pd.DataFrame([
+        {'小时': h, '总GPS点数': total_count[h], '载客GPS点数': occ_count[h],
+         '载客率': round(occ_count[h] / total_count[h], 4) if total_count[h] > 0 else 0.0}
+        for h in range(24)
+    ])
+    occ_rate_path = os.path.join(DATA_DIR, 'occupancy_rate.csv')
+    df_occ_rate.to_csv(occ_rate_path, index=False)
+    print(f'  保存: {occ_rate_path} ({len(df_occ_rate)} 行)')
+    print(f'  数据来源: clean.csv 按时段统计 status==1 点数占比')
+    print(f'  聚合粒度: 小时级')
+    for _, r in df_occ_rate.iterrows():
+        print(f'    {int(r["小时"]):02d}:00  载客率={r["载客率"]:.2%}  (载客{r["载客GPS点数"]:,} / 总{r["总GPS点数"]:,})')
+
+
+    # --- 4.8 车辆里程统计 ---
+    # 数据来源: clean.csv, 距离计算: haversine_km (src/utils.py)
+    # 统计口径: 按车辆逐段累加相邻GPS点间的大圆距离, 按status分载客/空载
+    print()
+    print('--- 4.8 车辆里程统计 ---')
+    print('  数据来源: clean.csv')
+    print('  距离计算: haversine_km (大圆距离)')
+    print('  统计口径: 按车辆逐段累加相邻GPS点距离')
+
+    from src.utils import haversine_km
+
+    vehicle_mileage: dict[str, dict] = {}
+    last_point: dict[str, tuple[float, float]] = {}
+
+    chunk_iter3 = pd.read_csv(
+        clean_path,
+        chunksize=500_000,
+        usecols=['id', 'lati', 'long', 'status'],
+    )
+    processed_rows = 0
+    for chunk in chunk_iter3:
+        processed_rows += len(chunk)
+        for vid, group in chunk.groupby('id'):
+            vid_key = str(int(vid))
+            if vid_key not in vehicle_mileage:
+                vehicle_mileage[vid_key] = {'总里程': 0.0, '载客里程': 0.0, '空载里程': 0.0}
+
+            lats = group['lati'].astype(float).values
+            lons = group['long'].astype(float).values
+            statuses = group['status'].astype(int).values
+            n = len(lats)
+
+            if vid_key in last_point:
+                prev_lat, prev_lon = last_point[vid_key]
+                seg = haversine_km(prev_lat, prev_lon, lats[0], lons[0])
+                if seg <= 5.0:
+                    vehicle_mileage[vid_key]['总里程'] += seg
+                    if statuses[0] == 1:
+                        vehicle_mileage[vid_key]['载客里程'] += seg
+                    else:
+                        vehicle_mileage[vid_key]['空载里程'] += seg
+
+            for i in range(n - 1):
+                lat1, lon1 = lats[i], lons[i]
+                lat2, lon2 = lats[i + 1], lons[i + 1]
+                seg_km = haversine_km(lat1, lon1, lat2, lon2)
+                if seg_km > 5.0:
+                    continue
+                vehicle_mileage[vid_key]['总里程'] += seg_km
+                if statuses[i + 1] == 1:
+                    vehicle_mileage[vid_key]['载客里程'] += seg_km
+                else:
+                    vehicle_mileage[vid_key]['空载里程'] += seg_km
+
+            last_point[vid_key] = (float(lats[-1]), float(lons[-1]))
+
+        if processed_rows % 5_000_000 == 0:
+            print(f'  已处理: {processed_rows:,} 行 ...')
+
+    print(f'  总处理行数: {processed_rows:,}')
+
+    df_mileage = pd.DataFrame([
+        {'车辆id': vid, '总里程_km': round(v['总里程'], 2),
+         '载客里程_km': round(v['载客里程'], 2),
+         '空载里程_km': round(v['空载里程'], 2)}
+        for vid, v in vehicle_mileage.items()
+    ]).sort_values('总里程_km', ascending=False)
+
+    mileage_path = os.path.join(DATA_DIR, 'vehicle_mileage.csv')
+    df_mileage.to_csv(mileage_path, index=False)
+    print(f'  保存: {mileage_path} ({len(df_mileage)} 行)')
+
+    total_km = df_mileage['总里程_km'].sum()
+    occupied_km = df_mileage['载客里程_km'].sum()
+    empty_km = df_mileage['空载里程_km'].sum()
+    n_vehicles = len(df_mileage)
+
+    print(f'  车辆数: {n_vehicles:,}')
+    print(f'  总里程: {total_km:,.0f} km')
+    print(f'  载客里程: {occupied_km:,.0f} km ({occupied_km/total_km*100:.1f}%)')
+    print(f'  空载里程: {empty_km:,.0f} km ({empty_km/total_km*100:.1f}%)')
+    print(f'  单车日均里程: {total_km/n_vehicles:.0f} km')
+    print(f'  全天平均载客率(按里程): {occupied_km/total_km*100:.1f}%')
+
+
     print()
     print('=' * 60)
     print('数据分析汇总')
@@ -244,8 +367,11 @@ def main() -> None:
     print(f'  [4.4] 出行距离划分行数:      {len(df_jnluc):>6}')
     print(f'  [4.5] 平均速度统计行数:      {len(df_speed_hour):>6}')
     print(f'  [4.6] 载客出租车分钟数:      {len(df_occupied):>6}')
+    print(f'  [4.7] 载客率统计行数:        {len(df_occ_rate):>6}')
+    print(f'  [4.8] 车辆里程统计行数:      {len(df_mileage):>6}')
     print(f'  {"─" * 40}')
     print(f'  OD对总数:                    {total_od_pairs:>6}')
+    print(f'  全天平均载客率(按里程):      {occupied_km/total_km*100:>6.1f}%')
 
     match = '✓' if hourly_sum == total_od_pairs else '✗'
     print(f'  验证: 时段统计总和={hourly_sum} == OD对总数={total_od_pairs} {match}')
